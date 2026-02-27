@@ -20,7 +20,7 @@ export function parseSqlAlchemyModel(content: string): TableSchema[] {
     const tableName = tableNameMatch[1];
     const columns: TableSchema['columns'] = {};
 
-    const columnRegex = /^\s*(\w+)\s*=\s*Column\(([^\n]+)\)$/gm;
+    const columnRegex = /^\s*(\w+)(?:\s*:\s*Mapped\[[^\]]+\])?\s*=\s*(?:mapped_column|Column)\(([^)\n]+)\)\s*$/gm;
     let columnMatch: RegExpExecArray | null;
 
     while ((columnMatch = columnRegex.exec(block)) !== null) {

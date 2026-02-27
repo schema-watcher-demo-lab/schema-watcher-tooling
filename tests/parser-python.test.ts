@@ -21,6 +21,25 @@ describe("parsePython", () => {
     expect(tables[0].columns.email.nullable).toBe(false);
   });
 
+  it("parses SQLAlchemy mapped_column declarations", () => {
+    const model = `
+      class User(Base):
+        __tablename__ = "users"
+
+        id: Mapped[int] = mapped_column(Integer, primary_key=True)
+        email: Mapped[str] = mapped_column(String, nullable=False)
+        active: Mapped[bool] = mapped_column(Boolean, default=True)
+    `;
+
+    const parser = new ParserRegistry();
+    const tables = parser.parse(model, "app/models.py");
+
+    expect(tables).toHaveLength(1);
+    expect(tables[0].columns.id.type).toBe("Integer");
+    expect(tables[0].columns.email.nullable).toBe(false);
+    expect(tables[0].columns.active.type).toBe("Boolean");
+  });
+
   it("parses Alembic op.create_table columns", () => {
     const migration = `
       def upgrade():

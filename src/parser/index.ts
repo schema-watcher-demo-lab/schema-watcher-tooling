@@ -4,6 +4,8 @@ import { parseDbtModel } from './dbt.js';
 import { parseMigration } from './migrations.js';
 import { parseRailsMigration } from './rails.js';
 import { parseAlembicMigration, parseSqlAlchemyModel } from './python.js';
+import { parseDrizzleSchema } from './drizzle.js';
+import { parseAvroSchema, parseProtoSchema, parseJsonEventSchema } from './kafka.js';
 
 export class ParserRegistry {
   private parsers: Map<string, (content: string, filePath: string) => TableSchema[]> = new Map();
@@ -20,6 +22,22 @@ export class ParserRegistry {
   }
 
   parse(content: string, filePath: string): TableSchema[] {
+    if ((filePath.endsWith('.ts') || filePath.endsWith('.js')) && filePath.includes('drizzle/')) {
+      return parseDrizzleSchema(content);
+    }
+
+    if (filePath.endsWith('.avsc')) {
+      return parseAvroSchema(content);
+    }
+
+    if (filePath.endsWith('.proto')) {
+      return parseProtoSchema(content);
+    }
+
+    if (filePath.endsWith('.schema.json')) {
+      return parseJsonEventSchema(content);
+    }
+
     if (filePath.endsWith('.rb') && filePath.includes('db/migrate/')) {
       return parseRailsMigration(content);
     }
@@ -41,4 +59,15 @@ export class ParserRegistry {
   }
 }
 
-export { parsePrisma, parseDbtModel, parseMigration, parseRailsMigration, parseSqlAlchemyModel, parseAlembicMigration };
+export {
+  parsePrisma,
+  parseDbtModel,
+  parseMigration,
+  parseRailsMigration,
+  parseSqlAlchemyModel,
+  parseAlembicMigration,
+  parseDrizzleSchema,
+  parseAvroSchema,
+  parseProtoSchema,
+  parseJsonEventSchema,
+};
