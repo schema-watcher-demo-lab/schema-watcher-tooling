@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
+import { postSchemaChanges } from './api.js';
 
 export interface CLIArgs {
   repo: string;
@@ -43,6 +44,47 @@ function validateUrl(url: string, name: string): void {
   }
 }
 
+type RuntimeDeps = {
+  postSchemaChanges: typeof postSchemaChanges;
+};
+
+export async function runSchemaWatcher(
+  args: CLIArgs,
+  deps: RuntimeDeps = { postSchemaChanges }
+): Promise<void> {
+  if (args.init) {
+    console.log('Initial scan not implemented yet');
+    return;
+  }
+
+  if (!args.pr) {
+    throw new Error('--pr is required for PR mode');
+  }
+
+  console.log(`Running schema watcher for ${args.repo} PR #${args.pr}`);
+
+  if (args.dryRun) {
+    console.log('Dry run enabled, skipping API report');
+    return;
+  }
+
+  const apiKey = args.apiKey || process.env.CREW_API_KEY;
+  if (!apiKey) {
+    console.log('No API key provided, skipping API report');
+    return;
+  }
+
+  await deps.postSchemaChanges({
+    apiEndpoint: args.apiEndpoint,
+    apiKey,
+    repo: args.repo,
+    pr: args.pr,
+    changes: [],
+  });
+
+  console.log('Reported schema changes to API');
+}
+
 export async function main() {
   try {
     const args = parseArgs(process.argv);
@@ -51,17 +93,7 @@ export async function main() {
       validateUrl(args.slackWebhook, 'Slack webhook URL');
     }
 
-    if (args.init) {
-      console.log('Initial scan not implemented yet');
-      return;
-    }
-
-    if (!args.pr) {
-      console.error('Error: --pr is required for PR mode');
-      process.exit(1);
-    }
-
-    console.log(`Running schema watcher for ${args.repo} PR #${args.pr}`);
+    await runSchemaWatcher(args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${message}`);
