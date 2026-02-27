@@ -17,6 +17,15 @@ describe('detector', () => {
     expect(isSchemaFile('db/migrations/20240101_create_users.py')).toBe(true);
   });
 
+  it('should detect Drizzle, Kafka schema, and OTel contract files', () => {
+    expect(isSchemaFile('drizzle/schema.ts')).toBe(true);
+    expect(isSchemaFile('schemas/order_created.avsc')).toBe(true);
+    expect(isSchemaFile('schemas/order_created.proto')).toBe(true);
+    expect(isSchemaFile('schemas/order_created.schema.json')).toBe(true);
+    expect(isSchemaFile('metrics/contracts.yaml')).toBe(true);
+    expect(isSchemaFile('logs_traces/contracts.yaml')).toBe(true);
+  });
+
   it('should reject non-schema files', () => {
     expect(isSchemaFile('src/index.ts')).toBe(false);
     expect(isSchemaFile('README.md')).toBe(false);
