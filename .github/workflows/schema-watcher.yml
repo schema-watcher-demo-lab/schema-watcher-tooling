@@ -18,6 +18,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CREW_API_KEY: ${{ secrets.CREW_API_KEY }}
+          SCHEMA_API_ENDPOINT: ${{ secrets.SCHEMA_API_ENDPOINT }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
@@ -25,6 +26,7 @@ jobs:
           bun run src/index.ts \
             --repo ${{ github.repository || 'owner/repo' }} \
             --pr ${{ github.event.pull_request.number || 1 }} \
+            ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
             ${{ secrets.CREW_API_KEY && format('--api-key {0}', secrets.CREW_API_KEY) || '' }} \
             ${{ secrets.SLACK_WEBHOOK && format('--slack-webhook {0}', secrets.SLACK_WEBHOOK) || '' }} \
             ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }}

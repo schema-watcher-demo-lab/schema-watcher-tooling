@@ -42,6 +42,12 @@ crew-schema-watcher --repo owner/name --pr 123 \
 
 See `.github/workflows/schema-watcher.yml` for example usage.
 
+### Local Action + Backend E2E
+
+Use the canonical runbook at:
+
+- `../docs/schema-watcher-local-action-and-schema-history.md`
+
 ## Development
 
 ```bash

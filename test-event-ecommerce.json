@@ -1,0 +1,13 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 314,
+    "title": "feat(schema): add currency + rename product price",
+    "head": { "ref": "feat/ecommerce-schema-v2" },
+    "base": { "ref": "main" },
+    "user": { "login": "devuser" }
+  },
+  "repository": {
+    "full_name": "fakeco/ecommerce"
+  }
+}
