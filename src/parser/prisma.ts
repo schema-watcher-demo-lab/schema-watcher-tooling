@@ -10,14 +10,21 @@ export function parsePrisma(content: string): TableSchema[] {
     const body = match[2];
     const columns: TableSchema['columns'] = {};
     
-    const fieldRegex = /(\w+)\s+(\w+)(\?)?(\s+@default\([^)]+\))?/g;
-    let fieldMatch;
-    
-    while ((fieldMatch = fieldRegex.exec(body)) !== null) {
-      const [, fieldName, fieldType] = fieldMatch;
+    const lines = body
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .filter(line => !line.startsWith('//'));
+
+    for (const line of lines) {
+      // Match: fieldName fieldType? [attributes...]
+      const fieldMatch = line.match(/^(\w+)\s+([A-Za-z][A-Za-z0-9_]*)(\?)?\b/);
+      if (!fieldMatch) continue;
+
+      const [, fieldName, fieldType, nullableMarker] = fieldMatch;
       columns[fieldName] = {
         type: fieldType,
-        nullable: fieldMatch[3] === '?',
+        nullable: nullableMarker === '?',
       };
     }
     

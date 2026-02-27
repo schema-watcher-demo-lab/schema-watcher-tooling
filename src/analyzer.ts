@@ -11,6 +11,9 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
     
     if (!oldTable) {
       changes.push({ table: name, changeType: 'TABLE_ADDED' });
+      for (const [colName, col] of Object.entries(table.columns)) {
+        changes.push({ table: name, changeType: 'COLUMN_ADDED', column: colName, newType: col.type });
+      }
       continue;
     }
     
