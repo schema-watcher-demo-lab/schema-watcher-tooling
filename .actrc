@@ -1,0 +1,2 @@
+--container-daemon-socket unix:///tmp/podman.sock
+--use-gitignore

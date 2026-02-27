@@ -1,0 +1,24 @@
+name: 'Schema Watcher'
+description: 'Detect and report schema changes in PRs'
+
+inputs:
+  api-endpoint:
+    description: 'Schema storage API endpoint'
+    required: false
+    default: ''
+  slack-webhook:
+    description: 'Slack webhook URL'
+    required: false
+    default: ''
+  kafka-broker:
+    description: 'Kafka broker address'
+    required: false
+    default: ''
+  kafka-topic:
+    description: 'Kafka topic name'
+    required: false
+    default: ''
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

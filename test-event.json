@@ -1,0 +1,19 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 1,
+    "title": "Test PR",
+    "head": {
+      "ref": "test-branch"
+    },
+    "base": {
+      "ref": "main"
+    },
+    "user": {
+      "login": "testuser"
+    }
+  },
+  "repository": {
+    "full_name": "test/repo"
+  }
+}

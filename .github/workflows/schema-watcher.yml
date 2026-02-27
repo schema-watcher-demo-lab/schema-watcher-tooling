@@ -1,0 +1,30 @@
+name: Schema Watcher
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  schema-watcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+
+      - name: Run Schema Watcher
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CREW_API_KEY: ${{ secrets.CREW_API_KEY }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
+          KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
+        run: |
+          bun run src/index.ts \
+            --repo ${{ github.repository || 'owner/repo' }} \
+            --pr ${{ github.event.pull_request.number || 1 }} \
+            ${{ secrets.CREW_API_KEY && format('--api-key {0}', secrets.CREW_API_KEY) || '' }} \
+            ${{ secrets.SLACK_WEBHOOK && format('--slack-webhook {0}', secrets.SLACK_WEBHOOK) || '' }} \
+            ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }}
