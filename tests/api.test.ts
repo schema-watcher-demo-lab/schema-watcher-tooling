@@ -18,7 +18,7 @@ describe('api client', () => {
 
     const { postSchemaChanges } = await import('../src/api');
     await postSchemaChanges({
-      apiEndpoint: 'http://localhost:3000',
+      apiEndpoint: 'https://api.example.com',
       apiKey: 'test-api-key',
       repo: 'test/repo',
       pr: 123,
@@ -28,7 +28,7 @@ describe('api client', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:3000/api/changes');
+    expect(url).toBe('https://api.example.com/api/changes');
     expect(options.method).toBe('POST');
     expect(options.headers).toEqual({
       'content-type': 'application/json',
@@ -53,12 +53,25 @@ describe('api client', () => {
     const { postSchemaChanges } = await import('../src/api');
     await expect(
       postSchemaChanges({
-        apiEndpoint: 'http://localhost:3000',
+        apiEndpoint: 'https://api.example.com',
         apiKey: 'bad-key',
         repo: 'test/repo',
         pr: 1,
         changes: [],
       })
     ).rejects.toThrow('Schema API request failed (401): Invalid API key');
+  });
+
+  it('rejects private API endpoints', async () => {
+    const { postSchemaChanges } = await import('../src/api');
+    await expect(
+      postSchemaChanges({
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'k',
+        repo: 'test/repo',
+        pr: 1,
+        changes: [],
+      })
+    ).rejects.toThrow('Disallowed private API endpoint host: localhost');
   });
 });
