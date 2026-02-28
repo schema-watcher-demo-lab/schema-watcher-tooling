@@ -5,13 +5,20 @@ function normalizeEndpoint(endpoint) {
     return endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
 }
 function isPrivateHostname(hostname) {
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+    const normalized = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+    if (normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1") {
         return true;
     }
-    if (hostname.startsWith("10.") || hostname.startsWith("192.168.")) {
+    if (normalized.endsWith(".local") || normalized.endsWith(".internal")) {
         return true;
     }
-    const parts = hostname.split(".");
+    if (normalized.startsWith("10.") || normalized.startsWith("192.168.") || normalized.startsWith("169.254.")) {
+        return true;
+    }
+    if (normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb")) {
+        return true;
+    }
+    const parts = normalized.split(".");
     if (parts.length === 4 && parts.every((part) => /^\d+$/.test(part))) {
         const first = Number(parts[0]);
         const second = Number(parts[1]);

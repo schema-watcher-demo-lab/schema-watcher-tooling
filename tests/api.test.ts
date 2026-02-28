@@ -74,4 +74,27 @@ describe('api client', () => {
       })
     ).rejects.toThrow('Disallowed private API endpoint host: localhost');
   });
+
+  it('rejects link-local and unique-local endpoint hosts', async () => {
+    const { postSchemaChanges } = await import('../src/api');
+    await expect(
+      postSchemaChanges({
+        apiEndpoint: 'http://169.254.169.254',
+        apiKey: 'k',
+        repo: 'test/repo',
+        pr: 1,
+        changes: [],
+      })
+    ).rejects.toThrow('Disallowed private API endpoint host: 169.254.169.254');
+
+    await expect(
+      postSchemaChanges({
+        apiEndpoint: 'http://[fd00::1]',
+        apiKey: 'k',
+        repo: 'test/repo',
+        pr: 1,
+        changes: [],
+      })
+    ).rejects.toThrow('Disallowed private API endpoint host: [fd00::1]');
+  });
 });
