@@ -17,6 +17,11 @@ describe('detector', () => {
     expect(isSchemaFile('db/migrations/20240101_create_users.py')).toBe(true);
   });
 
+  it('should detect python model module layouts', () => {
+    expect(isSchemaFile('app/models/order.py')).toBe(true);
+    expect(isSchemaFile('service/entities/account.py')).toBe(true);
+  });
+
   it('should detect Drizzle, Kafka schema, and OTel contract files', () => {
     expect(isSchemaFile('drizzle/schema.ts')).toBe(true);
     expect(isSchemaFile('schemas/order_created.avsc')).toBe(true);

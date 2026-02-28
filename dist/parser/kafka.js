@@ -20,22 +20,25 @@ function parseAvroSchema(content) {
     }
 }
 function parseProtoSchema(content) {
-    const messageMatch = content.match(/message\s+(\w+)\s*\{([\s\S]*?)\}/m);
-    if (!messageMatch)
-        return [];
-    const name = messageMatch[1];
-    const body = messageMatch[2];
-    const columns = {};
-    const fieldRegex = /^\s*(\w+)\s+(\w+)\s*=\s*\d+\s*;/gm;
-    let fieldMatch;
-    while ((fieldMatch = fieldRegex.exec(body)) !== null) {
-        const type = fieldMatch[1].toLowerCase();
-        const field = fieldMatch[2];
-        columns[field] = { type, nullable: true };
+    const tables = [];
+    const messageRegex = /message\s+(\w+)\s*\{([\s\S]*?)\}/gm;
+    let messageMatch;
+    while ((messageMatch = messageRegex.exec(content)) !== null) {
+        const name = messageMatch[1];
+        const body = messageMatch[2];
+        const columns = {};
+        const fieldRegex = /^\s*(\w+)\s+(\w+)\s*=\s*\d+\s*;/gm;
+        let fieldMatch;
+        while ((fieldMatch = fieldRegex.exec(body)) !== null) {
+            const type = fieldMatch[1].toLowerCase();
+            const field = fieldMatch[2];
+            columns[field] = { type, nullable: true };
+        }
+        if (Object.keys(columns).length > 0) {
+            tables.push({ name, columns });
+        }
     }
-    if (Object.keys(columns).length === 0)
-        return [];
-    return [{ name, columns }];
+    return tables;
 }
 function parseJsonEventSchema(content) {
     try {

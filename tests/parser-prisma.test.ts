@@ -21,4 +21,29 @@ describe("parsePrisma", () => {
       "sku",
     ]);
   });
+
+  it("ignores relation fields and parses models with nested braces in attributes", () => {
+    const schema = `
+      model User {
+        id     String @id @default(cuid())
+        posts  Post[]
+        meta   Json   @default("{\\"theme\\": {\\"name\\": \\"dark\\"}}")
+      }
+
+      model Post {
+        id      String @id @default(cuid())
+        userId  String
+        user    User   @relation(fields: [userId], references: [id])
+      }
+    `;
+
+    const tables = parsePrisma(schema);
+    const user = tables.find((table) => table.name === "User");
+    const post = tables.find((table) => table.name === "Post");
+
+    expect(user).toBeDefined();
+    expect(post).toBeDefined();
+    expect(Object.keys(user!.columns).sort()).toEqual(["id", "meta"]);
+    expect(Object.keys(post!.columns).sort()).toEqual(["id", "userId"]);
+  });
 });

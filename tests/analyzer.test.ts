@@ -57,4 +57,35 @@ describe("analyzer", () => {
       },
     ]);
   });
+
+  it("emits default changes when column defaults differ", () => {
+    const changes = analyzeChanges(
+      [
+        {
+          name: "User",
+          columns: {
+            plan: { type: "String", nullable: false, default: "free" },
+          },
+        },
+      ],
+      [
+        {
+          name: "User",
+          columns: {
+            plan: { type: "String", nullable: false, default: "pro" },
+          },
+        },
+      ]
+    );
+
+    expect(changes).toEqual([
+      {
+        table: "User",
+        changeType: "COLUMN_DEFAULT_CHANGED",
+        column: "plan",
+        oldDefault: "free",
+        newDefault: "pro",
+      },
+    ]);
+  });
 });

@@ -21,6 +21,22 @@ describe("parsePython", () => {
     expect(tables[0].columns.email.nullable).toBe(false);
   });
 
+  it("parses SQLAlchemy model columns from package model paths", () => {
+    const model = `
+      class Order(Base):
+        __tablename__ = "orders"
+        id = Column(Integer, primary_key=True)
+        status = Column(String, nullable=False)
+    `;
+
+    const parser = new ParserRegistry();
+    const tables = parser.parse(model, "app/models/order.py");
+
+    expect(tables).toHaveLength(1);
+    expect(tables[0].name).toBe("orders");
+    expect(tables[0].columns.status.nullable).toBe(false);
+  });
+
   it("parses SQLAlchemy mapped_column declarations", () => {
     const model = `
       class User(Base):

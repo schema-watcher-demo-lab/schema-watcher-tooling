@@ -42,7 +42,7 @@ export class ParserRegistry {
       return parseRailsMigration(content);
     }
 
-    if (filePath.endsWith('/models.py')) {
+    if (filePath.endsWith('/models.py') || /(^|\/)(models|entities)\/[^/]+\.py$/.test(filePath)) {
       return parseSqlAlchemyModel(content);
     }
 

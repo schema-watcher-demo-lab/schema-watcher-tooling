@@ -22,24 +22,30 @@ export function parseAvroSchema(content: string): TableSchema[] {
 }
 
 export function parseProtoSchema(content: string): TableSchema[] {
-  const messageMatch = content.match(/message\s+(\w+)\s*\{([\s\S]*?)\}/m);
-  if (!messageMatch) return [];
+  const tables: TableSchema[] = [];
+  const messageRegex = /message\s+(\w+)\s*\{([\s\S]*?)\}/gm;
+  let messageMatch: RegExpExecArray | null;
 
-  const name = messageMatch[1];
-  const body = messageMatch[2];
-  const columns: TableSchema['columns'] = {};
+  while ((messageMatch = messageRegex.exec(content)) !== null) {
+    const name = messageMatch[1];
+    const body = messageMatch[2];
+    const columns: TableSchema['columns'] = {};
 
-  const fieldRegex = /^\s*(\w+)\s+(\w+)\s*=\s*\d+\s*;/gm;
-  let fieldMatch: RegExpExecArray | null;
+    const fieldRegex = /^\s*(\w+)\s+(\w+)\s*=\s*\d+\s*;/gm;
+    let fieldMatch: RegExpExecArray | null;
 
-  while ((fieldMatch = fieldRegex.exec(body)) !== null) {
-    const type = fieldMatch[1].toLowerCase();
-    const field = fieldMatch[2];
-    columns[field] = { type, nullable: true };
+    while ((fieldMatch = fieldRegex.exec(body)) !== null) {
+      const type = fieldMatch[1].toLowerCase();
+      const field = fieldMatch[2];
+      columns[field] = { type, nullable: true };
+    }
+
+    if (Object.keys(columns).length > 0) {
+      tables.push({ name, columns });
+    }
   }
 
-  if (Object.keys(columns).length === 0) return [];
-  return [{ name, columns }];
+  return tables;
 }
 
 export function parseJsonEventSchema(content: string): TableSchema[] {

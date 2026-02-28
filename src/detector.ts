@@ -12,6 +12,7 @@ const SCHEMA_PATTERNS = [
   /\/db\/migrate\//,
   /\/migrate\//,
   /\/models\.py$/,
+  /(^|\/)(models|entities)\/.*\.py$/,
   /\/entities\/.*\.ts$/,
 ];
 

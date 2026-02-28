@@ -38,6 +38,14 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
           oldNullable: oldCol.nullable,
           newNullable: col.nullable,
         });
+      } else if (oldCol.default !== col.default) {
+        changes.push({
+          table: name,
+          changeType: 'COLUMN_DEFAULT_CHANGED',
+          column: colName,
+          oldDefault: oldCol.default,
+          newDefault: col.default,
+        });
       }
     }
     

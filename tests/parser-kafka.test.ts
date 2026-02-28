@@ -37,6 +37,25 @@ describe("parseKafkaSchemas", () => {
     expect(tables[0].columns.order_id.type).toBe("string");
   });
 
+  it("parses multiple Protobuf messages in one file", () => {
+    const proto = `
+      syntax = "proto3";
+      message OrderCreated {
+        string order_id = 1;
+      }
+      message OrderCancelled {
+        string order_id = 1;
+        string reason = 2;
+      }
+    `;
+
+    const parser = new ParserRegistry();
+    const tables = parser.parse(proto, "schemas/order_events.proto");
+
+    expect(tables).toHaveLength(2);
+    expect(tables.map((table) => table.name).sort()).toEqual(["OrderCancelled", "OrderCreated"]);
+  });
+
   it("parses JSON schema properties", () => {
     const jsonSchema = `{
       "title": "OrderCreated",

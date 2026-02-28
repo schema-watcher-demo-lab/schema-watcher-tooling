@@ -37,6 +37,15 @@ function analyzeChanges(oldSchema, newSchema) {
                     newNullable: col.nullable,
                 });
             }
+            else if (oldCol.default !== col.default) {
+                changes.push({
+                    table: name,
+                    changeType: 'COLUMN_DEFAULT_CHANGED',
+                    column: colName,
+                    oldDefault: oldCol.default,
+                    newDefault: col.default,
+                });
+            }
         }
         for (const colName of Object.keys(oldTable.columns)) {
             if (!table.columns[colName]) {

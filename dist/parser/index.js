@@ -45,7 +45,7 @@ class ParserRegistry {
         if (filePath.endsWith('.rb') && filePath.includes('db/migrate/')) {
             return (0, rails_js_1.parseRailsMigration)(content);
         }
-        if (filePath.endsWith('/models.py')) {
+        if (filePath.endsWith('/models.py') || /(^|\/)(models|entities)\/[^/]+\.py$/.test(filePath)) {
             return (0, python_js_1.parseSqlAlchemyModel)(content);
         }
         if (filePath.endsWith('.py') && filePath.includes('alembic/versions/')) {

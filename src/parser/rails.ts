@@ -5,7 +5,13 @@ function normalizeRailsType(raw: string): string {
 }
 
 export function parseRailsMigration(content: string): TableSchema[] {
-  const tables: TableSchema[] = [];
+  const tablesByName = new Map<string, TableSchema['columns']>();
+
+  function upsertColumn(tableName: string, columnName: string, column: TableSchema['columns'][string]) {
+    const existing = tablesByName.get(tableName) ?? {};
+    existing[columnName] = column;
+    tablesByName.set(tableName, existing);
+  }
 
   const createTableRegex = /create_table\s+:?(\w+)\s+do\s+\|t\|([\s\S]*?)\n\s*end/gm;
   let tableMatch: RegExpExecArray | null;
@@ -24,8 +30,8 @@ export function parseRailsMigration(content: string): TableSchema[] {
       const options = columnMatch[3] ?? '';
 
       if (type === 'timestamps') {
-        columns.created_at = { type: 'datetime', nullable: false };
-        columns.updated_at = { type: 'datetime', nullable: false };
+        upsertColumn(tableName, 'created_at', { type: 'datetime', nullable: false });
+        upsertColumn(tableName, 'updated_at', { type: 'datetime', nullable: false });
         continue;
       }
 
@@ -36,9 +42,24 @@ export function parseRailsMigration(content: string): TableSchema[] {
     }
 
     if (Object.keys(columns).length > 0) {
-      tables.push({ name: tableName, columns });
+      for (const [columnName, column] of Object.entries(columns)) {
+        upsertColumn(tableName, columnName, column);
+      }
     }
   }
 
-  return tables;
+  const addColumnRegex = /add_column\s+:?(\w+)\s*,\s*:?(["']?\w+["']?)\s*,\s*:?(\w+)(.*)$/gm;
+  let addColumnMatch: RegExpExecArray | null;
+  while ((addColumnMatch = addColumnRegex.exec(content)) !== null) {
+    const tableName = addColumnMatch[1];
+    const columnName = addColumnMatch[2].replace(/^['"]|['"]$/g, '');
+    const type = normalizeRailsType(addColumnMatch[3]);
+    const options = addColumnMatch[4] ?? '';
+    upsertColumn(tableName, columnName, {
+      type,
+      nullable: !/null:\s*false/.test(options),
+    });
+  }
+
+  return Array.from(tablesByName.entries()).map(([name, columns]) => ({ name, columns }));
 }
