@@ -46,9 +46,53 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw lastError;
 }
 
-export function createGitHubClient(token: string): GitHubClient {
-  const octokit = new Octokit({ auth: token });
-  
+type OctokitLike = {
+  rest: {
+    pulls: {
+      listFiles(params: { owner: string; repo: string; pull_number: number }): Promise<{ data: Array<{ filename: string; status: string; previous_filename?: string }> }>;
+      get(params: { owner: string; repo: string; pull_number: number }): Promise<{ data: { base?: { sha?: string }; head?: { sha?: string } } }>;
+    };
+    repos: {
+      getContent(params: { owner: string; repo: string; path: string; ref?: string }): Promise<{ data: unknown }>;
+    };
+    issues: {
+      createComment(params: { owner: string; repo: string; issue_number: number; body: string }): Promise<unknown>;
+    };
+  };
+};
+
+async function getFileContentAtRef(
+  octokit: OctokitLike,
+  owner: string,
+  repo: string,
+  filePath: string,
+  ref: string,
+): Promise<string> {
+  try {
+    const { data } = await withRetry(() =>
+      octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: filePath,
+        ref,
+      })
+    );
+
+    if (Array.isArray(data)) return '';
+    if (!data || typeof data !== 'object') return '';
+
+    const blob = data as { content?: string; encoding?: string };
+    if (!blob.content) return '';
+    if (blob.encoding === 'base64') {
+      return Buffer.from(blob.content, 'base64').toString('utf8');
+    }
+    return blob.content;
+  } catch {
+    return '';
+  }
+}
+
+export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClient {
   return {
     async getPRDiffs(owner: string, repo: string, prNumber: number): Promise<FileDiff[]> {
       return withRetry(async () => {
@@ -57,13 +101,50 @@ export function createGitHubClient(token: string): GitHubClient {
           repo,
           pull_number: prNumber,
         });
-        
-        return files.map(file => ({
-          filePath: file.filename,
-          oldContent: file.patch || '',
-          newContent: file.patch || '',
-          status: mapFileStatus(file.status),
-        }));
+
+        const { data: pull } = await octokit.rest.pulls.get({
+          owner,
+          repo,
+          pull_number: prNumber,
+        });
+
+        const baseSha = pull.base?.sha;
+        const headSha = pull.head?.sha;
+        if (!baseSha || !headSha) {
+          throw new Error('Missing pull request base/head SHA');
+        }
+
+        const diffs = await Promise.all(
+          files.map(async (file) => {
+            const status = mapFileStatus(file.status);
+            if (status === 'added') {
+              return {
+                filePath: file.filename,
+                oldContent: '',
+                newContent: await getFileContentAtRef(octokit, owner, repo, file.filename, headSha),
+                status,
+              } satisfies FileDiff;
+            }
+            if (status === 'deleted') {
+              return {
+                filePath: file.filename,
+                oldContent: await getFileContentAtRef(octokit, owner, repo, file.filename, baseSha),
+                newContent: '',
+                status,
+              } satisfies FileDiff;
+            }
+
+            const oldPath = file.previous_filename || file.filename;
+            return {
+              filePath: file.filename,
+              oldContent: await getFileContentAtRef(octokit, owner, repo, oldPath, baseSha),
+              newContent: await getFileContentAtRef(octokit, owner, repo, file.filename, headSha),
+              status,
+            } satisfies FileDiff;
+          })
+        );
+
+        return diffs;
       });
     },
     
@@ -78,6 +159,10 @@ export function createGitHubClient(token: string): GitHubClient {
       });
     },
   };
+}
+
+export function createGitHubClient(token: string): GitHubClient {
+  return createGitHubClientWithOctokit(new Octokit({ auth: token }));
 }
 
 export function parseGitHubDiff(diffContent: string): FileDiff[] {

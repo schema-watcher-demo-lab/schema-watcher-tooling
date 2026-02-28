@@ -26,4 +26,35 @@ describe("analyzer", () => {
       ])
     );
   });
+
+  it("emits old/new nullable flags for nullable changes", () => {
+    const changes = analyzeChanges(
+      [
+        {
+          name: "User",
+          columns: {
+            email: { type: "String", nullable: false },
+          },
+        },
+      ],
+      [
+        {
+          name: "User",
+          columns: {
+            email: { type: "String", nullable: true },
+          },
+        },
+      ]
+    );
+
+    expect(changes).toEqual([
+      {
+        table: "User",
+        changeType: "COLUMN_NULLABLE_CHANGED",
+        column: "email",
+        oldNullable: false,
+        newNullable: true,
+      },
+    ]);
+  });
 });

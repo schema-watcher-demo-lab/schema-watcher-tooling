@@ -35,8 +35,8 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
           table: name, 
           changeType: 'COLUMN_NULLABLE_CHANGED', 
           column: colName,
-          oldType: oldCol.type,
-          newType: col.type,
+          oldNullable: oldCol.nullable,
+          newNullable: col.nullable,
         });
       }
     }
