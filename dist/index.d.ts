@@ -16,10 +16,14 @@ export interface CLIArgs {
 export declare function parseArgs(argv: string[]): CLIArgs;
 type RuntimeDeps = {
     postSchemaChanges: typeof postSchemaChanges;
-    detectChanges: () => SchemaChange[];
+    detectChanges: (opts?: {
+        includeAllFiles?: boolean;
+    }) => SchemaChange[];
 };
 export declare function runSchemaWatcher(args: CLIArgs, deps?: RuntimeDeps): Promise<void>;
-export declare function detectSchemaChangesFromWorkspace(): SchemaChange[];
+export declare function detectSchemaChangesFromWorkspace(opts?: {
+    includeAllFiles?: boolean;
+}): SchemaChange[];
 export declare function main(): Promise<void>;
 export {};
 //# sourceMappingURL=index.d.ts.map

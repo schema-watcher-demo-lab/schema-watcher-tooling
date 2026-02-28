@@ -55,20 +55,19 @@ function validateUrl(url: string, name: string): void {
 
 type RuntimeDeps = {
   postSchemaChanges: typeof postSchemaChanges;
-  detectChanges: () => SchemaChange[];
+  detectChanges: (opts?: { includeAllFiles?: boolean }) => SchemaChange[];
 };
 
 export async function runSchemaWatcher(
   args: CLIArgs,
   deps: RuntimeDeps = { postSchemaChanges, detectChanges: detectSchemaChangesFromWorkspace }
 ): Promise<void> {
-  if (args.init) {
-    console.log('Initial scan not implemented yet');
-    return;
-  }
-
   if (!args.pr) {
     throw new Error('--pr is required for PR mode');
+  }
+
+  if (args.init) {
+    console.log('Initial scan mode enabled');
   }
 
   console.log(`Running schema watcher for ${args.repo} PR #${args.pr}`);
@@ -83,7 +82,7 @@ export async function runSchemaWatcher(
     console.log('No API key provided, skipping API report');
     return;
   }
-  const changes = deps.detectChanges();
+  const changes = deps.detectChanges({ includeAllFiles: args.init });
   console.log(`Detected ${changes.length} schema change(s)`);
 
   await deps.postSchemaChanges({
@@ -122,9 +121,9 @@ function readFileSafe(path: string): string {
   }
 }
 
-function readFileFromGit(path: string): string {
+function readFileFromGit(revision: string, path: string): string {
   try {
-    return execSync(`git show HEAD:${path}`, {
+    return execSync(`git show ${revision}:${path}`, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -161,15 +160,12 @@ function walkFiles(root: string): string[] {
   return results;
 }
 
-export function detectSchemaChangesFromWorkspace(): SchemaChange[] {
+export function detectSchemaChangesFromWorkspace(opts?: { includeAllFiles?: boolean }): SchemaChange[] {
   const parser = new ParserRegistry();
-  const changedFiles = new Set<string>([
-    ...runGit('git diff --name-only HEAD'),
-    ...runGit('git diff --cached --name-only'),
-    ...runGit('git diff --name-only HEAD~1 HEAD'),
-  ]);
-  if (changedFiles.size === 0) {
-    // Local act fallback: workspace may not have git metadata.
+  const includeAllFiles = opts?.includeAllFiles === true;
+  const changedFiles = new Set<string>();
+
+  if (includeAllFiles) {
     const cwd = process.cwd();
     for (const absoluteFilePath of walkFiles(cwd)) {
       const relativePath = path.relative(cwd, absoluteFilePath);
@@ -177,13 +173,24 @@ export function detectSchemaChangesFromWorkspace(): SchemaChange[] {
         changedFiles.add(relativePath);
       }
     }
+  } else {
+    for (const file of runGit('git diff --name-only HEAD')) changedFiles.add(file);
+    for (const file of runGit('git diff --cached --name-only')) changedFiles.add(file);
+    for (const file of runGit('git show --name-only --pretty="" HEAD')) changedFiles.add(file);
   }
 
   const schemaFiles = [...changedFiles].filter(isSchemaFile);
+  if (schemaFiles.length === 0) return [];
   const changes: SchemaChange[] = [];
+  const baseRevision = includeAllFiles ? null : runGit('git rev-parse --verify HEAD~1')[0] || null;
+
+  if (!includeAllFiles && !baseRevision) {
+    console.warn('Skipping schema detection: shallow clone missing HEAD~1 baseline');
+    return [];
+  }
 
   for (const filePath of schemaFiles) {
-    const oldContent = readFileFromGit(filePath);
+    const oldContent = includeAllFiles ? '' : readFileFromGit(baseRevision!, filePath);
     const newContent = readFileSafe(filePath);
     const oldSchema = parser.parse(oldContent, filePath);
     const newSchema = parser.parse(newContent, filePath);
