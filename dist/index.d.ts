@@ -19,8 +19,10 @@ type RuntimeDeps = {
     detectChanges: (opts?: {
         includeAllFiles?: boolean;
     }) => SchemaChange[];
+    reportSlack: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
+    reportKafka: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
-export declare function runSchemaWatcher(args: CLIArgs, deps?: RuntimeDeps): Promise<void>;
+export declare function runSchemaWatcher(args: CLIArgs, deps?: Partial<RuntimeDeps>): Promise<void>;
 export declare function detectSchemaChangesFromWorkspace(opts?: {
     includeAllFiles?: boolean;
 }): SchemaChange[];

@@ -71,4 +71,27 @@ describe('CLI', () => {
     expect(detectChanges).toHaveBeenCalledWith({ includeAllFiles: true });
     expect(postSchemaChanges).toHaveBeenCalledTimes(1);
   });
+
+  it('reports to slack and kafka when configured', async () => {
+    const { runSchemaWatcher } = await import('../src/index');
+    const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+    const detectChanges = vi.fn().mockReturnValue([{ table: 'users', changeType: 'TABLE_ADDED' }]);
+    const reportSlack = vi.fn().mockResolvedValue(undefined);
+    const reportKafka = vi.fn().mockResolvedValue(undefined);
+
+    await runSchemaWatcher({
+      repo: 'test/repo',
+      pr: 42,
+      apiEndpoint: 'http://localhost:3000',
+      apiKey: 'test-api-key',
+      dryRun: false,
+      init: false,
+      slackWebhook: 'https://hooks.slack.com/services/T000/B000/X',
+      kafkaBroker: 'kafka:9092',
+      kafkaTopic: 'schema-events',
+    }, { postSchemaChanges, detectChanges, reportSlack, reportKafka });
+
+    expect(reportSlack).toHaveBeenCalledTimes(1);
+    expect(reportKafka).toHaveBeenCalledTimes(1);
+  });
 });

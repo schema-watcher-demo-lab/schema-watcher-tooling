@@ -1,4 +1,4 @@
-export type ChangeType = 'TABLE_ADDED' | 'TABLE_REMOVED' | 'COLUMN_ADDED' | 'COLUMN_REMOVED' | 'COLUMN_TYPE_CHANGED' | 'COLUMN_NULLABLE_CHANGED' | 'COLUMN_DEFAULT_CHANGED';
+export type ChangeType = 'TABLE_ADDED' | 'TABLE_REMOVED' | 'COLUMN_ADDED' | 'COLUMN_REMOVED' | 'COLUMN_RENAMED' | 'COLUMN_TYPE_CHANGED' | 'COLUMN_NULLABLE_CHANGED' | 'COLUMN_DEFAULT_CHANGED';
 export interface ColumnChange {
     column: string;
     changeType: ChangeType;
@@ -21,6 +21,8 @@ export interface SchemaChange {
     table: string;
     changeType: ChangeType;
     column?: string;
+    oldColumn?: string;
+    newColumn?: string;
     oldType?: string;
     newType?: string;
     oldNullable?: boolean;

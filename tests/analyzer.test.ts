@@ -88,4 +88,37 @@ describe("analyzer", () => {
       },
     ]);
   });
+
+  it("detects column renames instead of add+remove when signatures match", () => {
+    const changes = analyzeChanges(
+      [
+        {
+          name: "User",
+          columns: {
+            full_name: { type: "String", nullable: false },
+          },
+        },
+      ],
+      [
+        {
+          name: "User",
+          columns: {
+            display_name: { type: "String", nullable: false },
+          },
+        },
+      ]
+    );
+
+    expect(changes).toEqual([
+      {
+        table: "User",
+        changeType: "COLUMN_RENAMED",
+        column: "display_name",
+        oldColumn: "full_name",
+        newColumn: "display_name",
+        oldType: "String",
+        newType: "String",
+      },
+    ]);
+  });
 });

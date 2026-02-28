@@ -17,11 +17,14 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
       continue;
     }
     
+    const addedColumns: Array<{ name: string; col: TableSchema['columns'][string] }> = [];
+    const removedColumns: Array<{ name: string; col: TableSchema['columns'][string] }> = [];
+
     for (const [colName, col] of Object.entries(table.columns)) {
       const oldCol = oldTable.columns[colName];
       
       if (!oldCol) {
-        changes.push({ table: name, changeType: 'COLUMN_ADDED', column: colName, newType: col.type });
+        addedColumns.push({ name: colName, col });
       } else if (oldCol.type !== col.type) {
         changes.push({ 
           table: name, 
@@ -51,8 +54,50 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
     
     for (const colName of Object.keys(oldTable.columns)) {
       if (!table.columns[colName]) {
-        changes.push({ table: name, changeType: 'COLUMN_REMOVED', column: colName, oldType: oldTable.columns[colName].type });
+        removedColumns.push({ name: colName, col: oldTable.columns[colName] });
       }
+    }
+
+    const usedAdded = new Set<string>();
+    const usedRemoved = new Set<string>();
+    for (const removed of removedColumns) {
+      const renamedTo = addedColumns.find((added) =>
+        !usedAdded.has(added.name) &&
+        added.col.type === removed.col.type &&
+        added.col.nullable === removed.col.nullable &&
+        added.col.default === removed.col.default
+      );
+      if (!renamedTo) continue;
+      usedRemoved.add(removed.name);
+      usedAdded.add(renamedTo.name);
+      changes.push({
+        table: name,
+        changeType: 'COLUMN_RENAMED',
+        column: renamedTo.name,
+        oldColumn: removed.name,
+        newColumn: renamedTo.name,
+        oldType: removed.col.type,
+        newType: renamedTo.col.type,
+      });
+    }
+
+    for (const added of addedColumns) {
+      if (usedAdded.has(added.name)) continue;
+      changes.push({
+        table: name,
+        changeType: 'COLUMN_ADDED',
+        column: added.name,
+        newType: added.col.type,
+      });
+    }
+    for (const removed of removedColumns) {
+      if (usedRemoved.has(removed.name)) continue;
+      changes.push({
+        table: name,
+        changeType: 'COLUMN_REMOVED',
+        column: removed.name,
+        oldType: removed.col.type,
+      });
     }
   }
   

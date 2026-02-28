@@ -16,6 +16,7 @@ const api_js_1 = require("./api.js");
 const analyzer_js_1 = require("./analyzer.js");
 const detector_js_1 = require("./detector.js");
 const index_js_1 = require("./parser/index.js");
+const index_js_2 = require("./reporter/index.js");
 function parseArgs(argv) {
     const program = new commander_1.Command();
     program
@@ -43,7 +44,36 @@ function validateUrl(url, name) {
         throw new Error(`Invalid ${name}: ${url}`);
     }
 }
-async function runSchemaWatcher(args, deps = { postSchemaChanges: api_js_1.postSchemaChanges, detectChanges: detectSchemaChangesFromWorkspace }) {
+async function reportSlackDefault(args, changes) {
+    if (!args.slackWebhook)
+        return;
+    const reporter = (0, index_js_2.createSlackReporter)(args.slackWebhook);
+    await reporter.report(changes, args.repo, args.pr ?? 0);
+}
+async function reportKafkaDefault(args, changes) {
+    if (!args.kafkaBroker || !args.kafkaTopic)
+        return;
+    const reporter = (0, index_js_2.createKafkaReporter)(args.kafkaBroker, args.kafkaTopic);
+    try {
+        await reporter.report(changes, args.repo, args.pr ?? 0);
+    }
+    finally {
+        await reporter.disconnect();
+    }
+}
+async function runSchemaWatcher(args, deps = {
+    postSchemaChanges: api_js_1.postSchemaChanges,
+    detectChanges: detectSchemaChangesFromWorkspace,
+    reportSlack: reportSlackDefault,
+    reportKafka: reportKafkaDefault,
+}) {
+    const runtime = {
+        postSchemaChanges: api_js_1.postSchemaChanges,
+        detectChanges: detectSchemaChangesFromWorkspace,
+        reportSlack: reportSlackDefault,
+        reportKafka: reportKafkaDefault,
+        ...deps,
+    };
     if (!args.pr) {
         throw new Error('--pr is required for PR mode');
     }
@@ -60,9 +90,9 @@ async function runSchemaWatcher(args, deps = { postSchemaChanges: api_js_1.postS
         console.log('No API key provided, skipping API report');
         return;
     }
-    const changes = deps.detectChanges({ includeAllFiles: args.init });
+    const changes = runtime.detectChanges({ includeAllFiles: args.init });
     console.log(`Detected ${changes.length} schema change(s)`);
-    await deps.postSchemaChanges({
+    await runtime.postSchemaChanges({
         apiEndpoint: args.apiEndpoint,
         apiKey,
         repo: args.repo,
@@ -70,6 +100,8 @@ async function runSchemaWatcher(args, deps = { postSchemaChanges: api_js_1.postS
         organizationId: args.organizationId,
         changes,
     });
+    await runtime.reportSlack(args, changes);
+    await runtime.reportKafka(args, changes);
     console.log('Reported schema changes to API');
 }
 function runGit(command) {
@@ -181,6 +213,9 @@ async function main() {
         const args = parseArgs(process.argv);
         if (args.slackWebhook) {
             validateUrl(args.slackWebhook, 'Slack webhook URL');
+        }
+        if ((args.kafkaBroker && !args.kafkaTopic) || (!args.kafkaBroker && args.kafkaTopic)) {
+            throw new Error('Both --kafka-broker and --kafka-topic are required for Kafka reporting');
         }
         await runSchemaWatcher(args);
     }
