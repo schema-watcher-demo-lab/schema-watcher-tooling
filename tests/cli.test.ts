@@ -18,6 +18,7 @@ describe('CLI', () => {
       pr: 42,
       apiEndpoint: 'http://localhost:3000',
       apiKey: 'test-api-key',
+      organizationId: 'org_mock_repos',
       dryRun: false,
       init: false,
     }, { postSchemaChanges, detectChanges });
@@ -27,6 +28,7 @@ describe('CLI', () => {
       apiKey: 'test-api-key',
       repo: 'test/repo',
       pr: 42,
+      organizationId: 'org_mock_repos',
       changes: [
         { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
       ],

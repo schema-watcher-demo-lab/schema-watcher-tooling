@@ -22,6 +22,7 @@ describe('api client', () => {
       apiKey: 'test-api-key',
       repo: 'test/repo',
       pr: 123,
+      organizationId: 'org_mock_repos',
       changes: [],
     });
 
@@ -36,6 +37,7 @@ describe('api client', () => {
     expect(options.body).toBe(JSON.stringify({
       repo: 'test/repo',
       pr: 123,
+      organizationId: 'org_mock_repos',
       changes: [],
     }));
   });

@@ -5,6 +5,7 @@ export interface PostSchemaChangesInput {
   apiKey: string;
   repo: string;
   pr: number;
+  organizationId?: string;
   changes: SchemaChange[];
 }
 
@@ -23,6 +24,7 @@ export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<
     body: JSON.stringify({
       repo: input.repo,
       pr: input.pr,
+      organizationId: input.organizationId,
       changes: input.changes,
     }),
   });

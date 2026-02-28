@@ -13,6 +13,7 @@ import type { SchemaChange } from './types.js';
 export interface CLIArgs {
   repo: string;
   pr?: number;
+  organizationId?: string;
   apiEndpoint: string;
   apiKey?: string;
   dryRun: boolean;
@@ -31,6 +32,7 @@ export function parseArgs(argv: string[]): CLIArgs {
     .description('Schema Watcher - Autonomous agent for schema change detection')
     .requiredOption('-r, --repo <owner/name>', 'Repository (owner/name)')
     .option('-p, --pr <number>', 'PR number')
+    .option('--organization-id <id>', 'Organization ID for disambiguation')
     .option('--api-endpoint <url>', 'Schema storage API endpoint', 'http://localhost:3000')
     .option('--api-key <key>', 'API key for schema storage')
     .option('--dry-run', 'Skip reporting, just output results', false)
@@ -89,6 +91,7 @@ export async function runSchemaWatcher(
     apiKey,
     repo: args.repo,
     pr: args.pr,
+    organizationId: args.organizationId,
     changes,
   });
 
