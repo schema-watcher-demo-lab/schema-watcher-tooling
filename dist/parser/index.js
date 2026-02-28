@@ -30,7 +30,8 @@ class ParserRegistry {
         this.parsers.set(extension, parser);
     }
     parse(content, filePath) {
-        if ((filePath.endsWith('.ts') || filePath.endsWith('.js')) && filePath.includes('drizzle/')) {
+        if ((filePath.endsWith('.ts') || filePath.endsWith('.js')) &&
+            (filePath.includes('drizzle/') || /(pgTable|mysqlTable|sqliteTable)\(/.test(content))) {
             return (0, drizzle_js_1.parseDrizzleSchema)(content);
         }
         if (filePath.endsWith('.avsc')) {

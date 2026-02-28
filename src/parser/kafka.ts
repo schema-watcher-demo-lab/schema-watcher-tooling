@@ -4,15 +4,27 @@ export function parseAvroSchema(content: string): TableSchema[] {
   try {
     const parsed = JSON.parse(content) as {
       name?: string;
-      fields?: Array<{ name: string; type: string | { type: string } }>;
+      fields?: Array<{ name: string; type: string | { type: string } | string[] }>;
     };
 
     if (!parsed.name || !parsed.fields) return [];
 
     const columns: TableSchema['columns'] = {};
     for (const field of parsed.fields) {
-      const type = typeof field.type === 'string' ? field.type : field.type.type;
-      columns[field.name] = { type, nullable: true };
+      let type = 'unknown';
+      let nullable = true;
+
+      if (typeof field.type === 'string') {
+        type = field.type;
+      } else if (Array.isArray(field.type)) {
+        const nonNull = field.type.find((entry) => entry !== 'null');
+        type = typeof nonNull === 'string' ? nonNull : 'unknown';
+        nullable = field.type.includes('null');
+      } else if (field.type && typeof field.type === 'object' && 'type' in field.type) {
+        type = field.type.type;
+      }
+
+      columns[field.name] = { type, nullable };
     }
 
     return [{ name: parsed.name, columns }];

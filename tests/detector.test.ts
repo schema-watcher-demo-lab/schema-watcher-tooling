@@ -24,6 +24,7 @@ describe('detector', () => {
 
   it('should detect Drizzle, Kafka schema, and OTel contract files', () => {
     expect(isSchemaFile('drizzle/schema.ts')).toBe(true);
+    expect(isSchemaFile('db/schema.ts')).toBe(true);
     expect(isSchemaFile('schemas/order_created.avsc')).toBe(true);
     expect(isSchemaFile('schemas/order_created.proto')).toBe(true);
     expect(isSchemaFile('schemas/order_created.schema.json')).toBe(true);

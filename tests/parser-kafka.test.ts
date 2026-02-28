@@ -20,6 +20,24 @@ describe("parseKafkaSchemas", () => {
     expect(tables[0].columns.order_id.type).toBe("string");
   });
 
+  it("handles Avro nullable union field types", () => {
+    const avro = `{
+      "type": "record",
+      "name": "OrderCreated",
+      "fields": [
+        {"name": "order_id", "type": "string"},
+        {"name": "promo_code", "type": ["null", "string"]}
+      ]
+    }`;
+
+    const parser = new ParserRegistry();
+    const tables = parser.parse(avro, "schemas/order_created.avsc");
+
+    expect(tables).toHaveLength(1);
+    expect(tables[0].columns.promo_code.type).toBe("string");
+    expect(tables[0].columns.promo_code.nullable).toBe(true);
+  });
+
   it("parses Protobuf message fields", () => {
     const proto = `
       syntax = "proto3";

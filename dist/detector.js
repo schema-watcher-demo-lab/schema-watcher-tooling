@@ -5,6 +5,7 @@ exports.detectSchemaFiles = detectSchemaFiles;
 const SCHEMA_PATTERNS = [
     /\.prisma$/,
     /(^|\/)drizzle\/.*\.(ts|js)$/,
+    /(^|\/)(db\/)?schema\.(ts|js)$/,
     /(^|\/)schemas\/.*\.(avsc|proto|schema\.json)$/,
     /(^|\/)metrics\/contracts\.(yml|yaml)$/,
     /(^|\/)logs_traces\/contracts\.(yml|yaml)$/,

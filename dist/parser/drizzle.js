@@ -5,10 +5,10 @@ function parseDrizzleSchema(content) {
     const tables = [];
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
-        const start = lines[i].match(/pgTable\(\s*["'](\w+)["']\s*,\s*\{/);
+        const start = lines[i].match(/(pgTable|mysqlTable|sqliteTable)\(\s*["'](\w+)["']\s*,\s*\{/);
         if (!start)
             continue;
-        const tableName = start[1];
+        const tableName = start[2];
         const bodyLines = [];
         let depth = 1;
         for (let j = i + 1; j < lines.length; j++) {
@@ -29,10 +29,11 @@ function parseDrizzleSchema(content) {
         while ((columnMatch = columnRegex.exec(body)) !== null) {
             const columnName = columnMatch[2];
             const type = columnMatch[3].toLowerCase();
-            const lineStart = columnMatch.index;
-            const lineEnd = body.indexOf('\n', lineStart);
-            const line = body.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
-            const nullable = !line.includes('.notNull()');
+            const expressionStart = columnMatch.index;
+            const nextColumn = body.slice(expressionStart + 1).search(/\n\s*\w+\s*:\s*\w+\(/);
+            const expressionEnd = nextColumn === -1 ? body.length : expressionStart + 1 + nextColumn;
+            const expression = body.slice(expressionStart, expressionEnd);
+            const nullable = !expression.includes('.notNull()');
             columns[columnName] = { type, nullable };
         }
         if (Object.keys(columns).length > 0) {

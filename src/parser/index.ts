@@ -22,7 +22,10 @@ export class ParserRegistry {
   }
 
   parse(content: string, filePath: string): TableSchema[] {
-    if ((filePath.endsWith('.ts') || filePath.endsWith('.js')) && filePath.includes('drizzle/')) {
+    if (
+      (filePath.endsWith('.ts') || filePath.endsWith('.js')) &&
+      (filePath.includes('drizzle/') || /(pgTable|mysqlTable|sqliteTable)\(/.test(content))
+    ) {
       return parseDrizzleSchema(content);
     }
 
