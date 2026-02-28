@@ -1,6 +1,10 @@
 name: 'Schema Watcher'
 description: 'Detect and report schema changes in PRs'
 
+permissions:
+  contents: read
+  pull-requests: read
+
 inputs:
   api-endpoint:
     description: 'Schema storage API endpoint'
