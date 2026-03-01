@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { postSchemaChanges } from './api.js';
@@ -143,9 +143,9 @@ export async function runSchemaWatcher(
   console.log('Reported schema changes to API');
 }
 
-function runGit(command: string): string[] {
+export function runGit(args: string[]): string[] {
   try {
-    const output = execSync(command, {
+    const output = execFileSync('git', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -220,15 +220,15 @@ export function detectSchemaChangesFromWorkspace(opts?: { includeAllFiles?: bool
       }
     }
   } else {
-    for (const file of runGit('git diff --name-only HEAD')) changedFiles.add(file);
-    for (const file of runGit('git diff --cached --name-only')) changedFiles.add(file);
-    for (const file of runGit('git show --name-only --pretty="" HEAD')) changedFiles.add(file);
+    for (const file of runGit(['diff', '--name-only', 'HEAD'])) changedFiles.add(file);
+    for (const file of runGit(['diff', '--cached', '--name-only'])) changedFiles.add(file);
+    for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD'])) changedFiles.add(file);
   }
 
   const schemaFiles = [...changedFiles].filter(isSchemaFile);
   if (schemaFiles.length === 0) return [];
   const changes: SchemaChange[] = [];
-  const baseRevision = includeAllFiles ? null : runGit('git rev-parse --verify HEAD~1')[0] || null;
+  const baseRevision = includeAllFiles ? null : runGit(['rev-parse', '--verify', 'HEAD~1'])[0] || null;
 
   if (!includeAllFiles && !baseRevision) {
     console.warn('Skipping schema detection: shallow clone missing HEAD~1 baseline');
