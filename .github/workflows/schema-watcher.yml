@@ -3,18 +3,39 @@ name: Schema Watcher
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - release/**
+
+permissions:
+  contents: read
 
 jobs:
   schema-watcher:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout target repo
         uses: actions/checkout@v4
+
+      - name: Checkout schema watcher tool
+        uses: actions/checkout@v4
+        with:
+          repository: schema-watcher-demo-lab/schema-watcher-tooling
+          ref: main
+          path: .schema-watcher-tool
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
 
+      - name: Install schema watcher dependencies
+        working-directory: .schema-watcher-tool
+        run: bun install --frozen-lockfile
+
       - name: Run Schema Watcher
+        working-directory: .schema-watcher-tool
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CREW_API_KEY: ${{ secrets.CREW_API_KEY }}
@@ -24,9 +45,10 @@ jobs:
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
         run: |
           bun run src/index.ts \
-            --repo ${{ github.repository || 'owner/repo' }} \
-            --pr ${{ github.event.pull_request.number || 1 }} \
+            --repo ${{ github.repository }} \
+            --pr ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_number }} \
             ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
             ${{ secrets.CREW_API_KEY && format('--api-key {0}', secrets.CREW_API_KEY) || '' }} \
             ${{ secrets.SLACK_WEBHOOK && format('--slack-webhook {0}', secrets.SLACK_WEBHOOK) || '' }} \
-            ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }}
+            ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }} \
+            ${{ secrets.KAFKA_TOPIC && format('--kafka-topic {0}', secrets.KAFKA_TOPIC) || '' }}
