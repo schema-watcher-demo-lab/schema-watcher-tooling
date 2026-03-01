@@ -51,7 +51,7 @@ jobs:
           KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
         run: |
-          bun ./.schema-watcher-tool/dist/index.js \
+          node ./.schema-watcher-tool/dist/index.js \
             --repo ${{ github.repository }} \
             --pr ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_number }} \
             ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
