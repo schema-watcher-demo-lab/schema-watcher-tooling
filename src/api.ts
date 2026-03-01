@@ -32,6 +32,8 @@ function isPrivateHostname(hostname: string): boolean {
     const first = Number(parts[0]);
     const second = Number(parts[1]);
     if (first === 172 && second >= 16 && second <= 31) return true;
+    // RFC 6598 carrier-grade NAT space
+    if (first === 100 && second >= 64 && second <= 127) return true;
   }
   return false;
 }

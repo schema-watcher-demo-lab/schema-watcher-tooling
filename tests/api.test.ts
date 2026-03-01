@@ -98,6 +98,16 @@ describe('api client', () => {
         changes: [],
       })
     ).rejects.toThrow('Disallowed private API endpoint host: [fd00::1]');
+
+    await expect(
+      postSchemaChanges({
+        apiEndpoint: 'http://100.64.0.1',
+        apiKey: 'k',
+        repo: 'test/repo',
+        pr: 1,
+        changes: [],
+      })
+    ).rejects.toThrow('Disallowed private API endpoint host: 100.64.0.1');
   });
 
   it('rejects insecure http for public API endpoints', async () => {
