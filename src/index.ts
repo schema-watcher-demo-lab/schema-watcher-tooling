@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { postSchemaChanges } from './api.js';
@@ -157,7 +157,7 @@ function readFileSafe(path: string): string {
 
 function readFileFromGit(revision: string, path: string): string {
   try {
-    return execSync(`git show ${revision}:${path}`, {
+    return execFileSync('git', ['show', `${revision}:${path}`], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
