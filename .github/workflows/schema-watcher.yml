@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -22,11 +24,29 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 1 }}
         run: |
-          bun run src/index.ts \
-            --repo ${{ github.repository || 'owner/repo' }} \
-            --pr ${{ github.event.pull_request.number || 1 }} \
-            ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
-            ${{ secrets.CREW_API_KEY && format('--api-key {0}', secrets.CREW_API_KEY) || '' }} \
-            ${{ secrets.SLACK_WEBHOOK && format('--slack-webhook {0}', secrets.SLACK_WEBHOOK) || '' }} \
-            ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }}
+          set -euo pipefail
+
+          args=(
+            --repo "${GITHUB_REPOSITORY:-owner/repo}"
+            --pr "${PR_NUMBER:-1}"
+          )
+          if [ -n "${SCHEMA_API_ENDPOINT:-}" ]; then
+            args+=(--api-endpoint "${SCHEMA_API_ENDPOINT}")
+          fi
+          if [ -n "${CREW_API_KEY:-}" ]; then
+            args+=(--api-key "${CREW_API_KEY}")
+          fi
+          if [ -n "${SLACK_WEBHOOK:-}" ]; then
+            args+=(--slack-webhook "${SLACK_WEBHOOK}")
+          fi
+          if [ -n "${KAFKA_BROKER:-}" ]; then
+            args+=(--kafka-broker "${KAFKA_BROKER}")
+          fi
+          if [ -n "${KAFKA_TOPIC:-}" ]; then
+            args+=(--kafka-topic "${KAFKA_TOPIC}")
+          fi
+
+          bun run src/index.ts "${args[@]}"
+        shell: bash
