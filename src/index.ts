@@ -126,8 +126,16 @@ export async function runSchemaWatcher(
     changes,
   });
 
-  await runtime.reportSlack(args, changes);
-  await runtime.reportKafka(args, changes);
+  try {
+    await runtime.reportSlack(args, changes);
+  } catch (error) {
+    console.warn("Slack reporting failed:", error instanceof Error ? error.message : String(error));
+  }
+  try {
+    await runtime.reportKafka(args, changes);
+  } catch (error) {
+    console.warn("Kafka reporting failed:", error instanceof Error ? error.message : String(error));
+  }
   console.log('Reported schema changes to API');
 }
 
