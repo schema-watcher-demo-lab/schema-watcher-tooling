@@ -56,7 +56,7 @@ jobs:
             --pr ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_number }} \
             ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
             ${{ secrets.CREW_API_KEY && format('--api-key {0}', secrets.CREW_API_KEY) || '' }} \
-            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.init == 'true' && '--init' || '' }} \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.init && '--init' || '' }} \
             ${{ secrets.SLACK_WEBHOOK && format('--slack-webhook {0}', secrets.SLACK_WEBHOOK) || '' }} \
             ${{ secrets.KAFKA_BROKER && format('--kafka-broker {0}', secrets.KAFKA_BROKER) || '' }} \
             ${{ secrets.KAFKA_TOPIC && format('--kafka-topic {0}', secrets.KAFKA_TOPIC) || '' }}
