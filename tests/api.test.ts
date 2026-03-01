@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { postSchemaChanges, setLookupForTests } from "../src/api";
 
 describe('api client', () => {
   const originalFetch = globalThis.fetch;
@@ -7,6 +8,7 @@ describe('api client', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+    setLookupForTests(null);
     process.env.ALLOW_PRIVATE_API_ENDPOINTS = originalAllowPrivate;
   });
 
@@ -18,7 +20,9 @@ describe('api client', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "93.184.216.34" },
+    ]);
     await postSchemaChanges({
       apiEndpoint: 'https://api.example.com',
       apiKey: 'test-api-key',
@@ -52,7 +56,9 @@ describe('api client', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "93.184.216.34" },
+    ]);
     await expect(
       postSchemaChanges({
         apiEndpoint: 'https://api.example.com',
@@ -65,7 +71,9 @@ describe('api client', () => {
   });
 
   it('rejects private API endpoints', async () => {
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "93.184.216.34" },
+    ]);
     await expect(
       postSchemaChanges({
         apiEndpoint: 'http://localhost:3000',
@@ -78,7 +86,9 @@ describe('api client', () => {
   });
 
   it('rejects link-local and unique-local endpoint hosts', async () => {
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "93.184.216.34" },
+    ]);
     await expect(
       postSchemaChanges({
         apiEndpoint: 'http://169.254.169.254',
@@ -111,7 +121,9 @@ describe('api client', () => {
   });
 
   it('rejects insecure http for public API endpoints', async () => {
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "93.184.216.34" },
+    ]);
     await expect(
       postSchemaChanges({
         apiEndpoint: 'http://api.example.com',
@@ -132,7 +144,9 @@ describe('api client', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const { postSchemaChanges } = await import('../src/api');
+    setLookupForTests(async () => [
+      { address: "127.0.0.1" },
+    ]);
     await postSchemaChanges({
       apiEndpoint: 'http://localhost:3000',
       apiKey: 'test-api-key',
@@ -144,5 +158,20 @@ describe('api client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://localhost:3000/api/changes');
+  });
+
+  it('rejects domains that resolve to private addresses', async () => {
+    setLookupForTests(async () => [
+      { address: "10.0.0.5" },
+    ]);
+    await expect(
+      postSchemaChanges({
+        apiEndpoint: "https://api.example.com",
+        apiKey: "k",
+        repo: "test/repo",
+        pr: 1,
+        changes: [],
+      })
+    ).rejects.toThrow("Disallowed private resolved address for host api.example.com: 10.0.0.5");
   });
 });

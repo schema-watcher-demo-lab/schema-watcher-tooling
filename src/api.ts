@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import type { SchemaChange } from './types.js';
 
 export interface PostSchemaChangesInput {
@@ -7,6 +8,13 @@ export interface PostSchemaChangesInput {
   pr: number;
   organizationId?: string;
   changes: SchemaChange[];
+}
+
+type LookupFn = typeof lookup;
+let lookupFn: LookupFn = lookup;
+
+export function setLookupForTests(nextLookup: LookupFn | null): void {
+  lookupFn = nextLookup ?? lookup;
 }
 
 function normalizeEndpoint(endpoint: string): string {
@@ -38,7 +46,34 @@ function isPrivateHostname(hostname: string): boolean {
   return false;
 }
 
-function validateApiEndpoint(endpoint: string): URL {
+function isDomainLikeHost(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "localhost") return false;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(normalized)) return false;
+  if (normalized.includes(":")) return false;
+  return /[a-z]/.test(normalized);
+}
+
+async function assertNoPrivateResolvedAddress(hostname: string, allowPrivate: boolean): Promise<void> {
+  if (allowPrivate || !isDomainLikeHost(hostname)) return;
+
+  let addresses: Array<{ address: string }> = [];
+  try {
+    addresses = await lookupFn(hostname, { all: true, verbatim: true });
+  } catch {
+    // Best-effort DNS rebinding mitigation; let fetch handle network failures.
+    return;
+  }
+
+  for (const result of addresses) {
+    if (isPrivateHostname(result.address)) {
+      throw new Error(`Disallowed private resolved address for host ${hostname}: ${result.address}`);
+    }
+  }
+}
+
+async function validateApiEndpoint(endpoint: string): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(endpoint);
@@ -55,6 +90,7 @@ function validateApiEndpoint(endpoint: string): URL {
   if (isPrivateHost && !allowPrivate) {
     throw new Error(`Disallowed private API endpoint host: ${parsed.hostname}`);
   }
+  await assertNoPrivateResolvedAddress(parsed.hostname, allowPrivate);
   if (parsed.protocol === "http:" && !isPrivateHost) {
     throw new Error("Insecure API endpoint protocol: http (use https)");
   }
@@ -62,7 +98,7 @@ function validateApiEndpoint(endpoint: string): URL {
 }
 
 export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<void> {
-  const validated = validateApiEndpoint(input.apiEndpoint);
+  const validated = await validateApiEndpoint(input.apiEndpoint);
   const url = `${normalizeEndpoint(validated.toString())}/api/changes`;
   const response = await fetch(url, {
     method: 'POST',
