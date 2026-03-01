@@ -42,7 +42,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run Schema Watcher
-        working-directory: .schema-watcher-tool
+        working-directory: .
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CREW_API_KEY: ${{ secrets.CREW_API_KEY }}
@@ -51,7 +51,7 @@ jobs:
           KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
         run: |
-          bun run src/index.ts \
+          bun .schema-watcher-tool/dist/index.js \
             --repo ${{ github.repository }} \
             --pr ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_number }} \
             ${{ secrets.SCHEMA_API_ENDPOINT && format('--api-endpoint {0}', secrets.SCHEMA_API_ENDPOINT) || '' }} \
