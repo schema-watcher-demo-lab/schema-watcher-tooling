@@ -41,6 +41,10 @@ jobs:
         working-directory: .schema-watcher-tool
         run: bun install --frozen-lockfile
 
+      - name: Build schema watcher tool
+        working-directory: .schema-watcher-tool
+        run: bun run build
+
       - name: Run Schema Watcher
         working-directory: .
         env:
