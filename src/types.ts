@@ -8,17 +8,6 @@ export type ChangeType =
   | 'COLUMN_NULLABLE_CHANGED'
   | 'COLUMN_DEFAULT_CHANGED';
 
-export interface ColumnChange {
-  column: string;
-  changeType: ChangeType;
-  oldType?: string;
-  newType?: string;
-  oldNullable?: boolean;
-  newNullable?: boolean;
-  oldDefault?: string;
-  newDefault?: string;
-}
-
 export interface TableSchema {
   name: string;
   columns: Record<string, {
