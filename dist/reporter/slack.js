@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSlackReporter = createSlackReporter;
 const webhook_1 = require("@slack/webhook");
+const breaking_js_1 = require("../breaking.js");
 function escapeSlack(text) {
     return text
         .replace(/&/g, '&amp;')
@@ -12,9 +13,7 @@ function createSlackReporter(webhookUrl) {
     const webhook = new webhook_1.IncomingWebhook(webhookUrl);
     return {
         async report(changes, repo, pr) {
-            const breaking = changes.filter(c => c.changeType === 'TABLE_REMOVED' ||
-                c.changeType === 'COLUMN_REMOVED' ||
-                c.changeType === 'COLUMN_TYPE_CHANGED').length;
+            const breaking = (0, breaking_js_1.countBreakingChanges)(changes);
             const blocks = [
                 {
                     type: 'header',

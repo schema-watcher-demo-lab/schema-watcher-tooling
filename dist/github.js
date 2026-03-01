@@ -170,10 +170,24 @@ function parseGitHubDiff(diffContent) {
                 continue;
             const oldPath = file.oldFileName.replace(/^a\//, '');
             const newPath = file.newFileName.replace(/^b\//, '');
+            const oldLines = [];
+            const newLines = [];
+            for (const hunk of file.hunks) {
+                for (const line of hunk.lines) {
+                    if (!line)
+                        continue;
+                    if (line.startsWith('\\'))
+                        continue;
+                    if (line.startsWith(' ') || line.startsWith('-'))
+                        oldLines.push(line.slice(1));
+                    if (line.startsWith(' ') || line.startsWith('+'))
+                        newLines.push(line.slice(1));
+                }
+            }
             files.push({
                 filePath: newPath !== '/dev/null' ? newPath : oldPath,
-                oldContent: '',
-                newContent: '',
+                oldContent: oldPath === '/dev/null' ? '' : oldLines.join('\n'),
+                newContent: newPath === '/dev/null' ? '' : newLines.join('\n'),
                 status: newPath === '/dev/null' ? 'deleted' : oldPath === '/dev/null' ? 'added' : 'modified',
             });
         }

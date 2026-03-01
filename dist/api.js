@@ -24,6 +24,9 @@ function isPrivateHostname(hostname) {
         const second = Number(parts[1]);
         if (first === 172 && second >= 16 && second <= 31)
             return true;
+        // RFC 6598 carrier-grade NAT space
+        if (first === 100 && second >= 64 && second <= 127)
+            return true;
     }
     return false;
 }
@@ -38,8 +41,13 @@ function validateApiEndpoint(endpoint) {
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         throw new Error(`Unsupported API endpoint protocol: ${parsed.protocol}`);
     }
-    if (isPrivateHostname(parsed.hostname) && process.env.ALLOW_PRIVATE_API_ENDPOINTS !== "1") {
+    const isPrivateHost = isPrivateHostname(parsed.hostname);
+    const allowPrivate = process.env.ALLOW_PRIVATE_API_ENDPOINTS === "1";
+    if (isPrivateHost && !allowPrivate) {
         throw new Error(`Disallowed private API endpoint host: ${parsed.hostname}`);
+    }
+    if (parsed.protocol === "http:" && !isPrivateHost) {
+        throw new Error("Insecure API endpoint protocol: http (use https)");
     }
     return parsed;
 }

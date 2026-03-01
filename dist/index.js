@@ -26,7 +26,7 @@ function parseArgs(argv) {
         .requiredOption('-r, --repo <owner/name>', 'Repository (owner/name)')
         .option('-p, --pr <number>', 'PR number')
         .option('--organization-id <id>', 'Organization ID for disambiguation')
-        .option('--api-endpoint <url>', 'Schema storage API endpoint', 'http://localhost:3000')
+        .option('--api-endpoint <url>', 'Schema storage API endpoint', '')
         .option('--api-key <key>', 'API key for schema storage')
         .option('--dry-run', 'Skip reporting, just output results', false)
         .option('--init', 'Initial full project scan (bootstrap)', false)
@@ -90,18 +90,32 @@ async function runSchemaWatcher(args, deps = {
         console.log('No API key provided, skipping API report');
         return;
     }
+    const apiEndpoint = args.apiEndpoint || process.env.SCHEMA_API_ENDPOINT;
+    if (!apiEndpoint) {
+        throw new Error('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
+    }
     const changes = runtime.detectChanges({ includeAllFiles: args.init });
     console.log(`Detected ${changes.length} schema change(s)`);
     await runtime.postSchemaChanges({
-        apiEndpoint: args.apiEndpoint,
+        apiEndpoint,
         apiKey,
         repo: args.repo,
         pr: args.pr,
         organizationId: args.organizationId,
         changes,
     });
-    await runtime.reportSlack(args, changes);
-    await runtime.reportKafka(args, changes);
+    try {
+        await runtime.reportSlack(args, changes);
+    }
+    catch (error) {
+        console.warn("Slack reporting failed:", error instanceof Error ? error.message : String(error));
+    }
+    try {
+        await runtime.reportKafka(args, changes);
+    }
+    catch (error) {
+        console.warn("Kafka reporting failed:", error instanceof Error ? error.message : String(error));
+    }
     console.log('Reported schema changes to API');
 }
 function runGit(command) {
@@ -131,7 +145,7 @@ function readFileSafe(path) {
 }
 function readFileFromGit(revision, path) {
     try {
-        return (0, child_process_1.execSync)(`git show ${revision}:${path}`, {
+        return (0, child_process_1.execFileSync)('git', ['show', `${revision}:${path}`], {
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'ignore'],
         });

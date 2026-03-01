@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createKafkaReporter = createKafkaReporter;
 const kafkajs_1 = require("kafkajs");
+const breaking_js_1 = require("../breaking.js");
 function createKafkaReporter(broker, topic) {
     const kafka = new kafkajs_1.Kafka({ brokers: [broker] });
     const producer = kafka.producer();
@@ -12,9 +13,7 @@ function createKafkaReporter(broker, topic) {
                 await producer.connect();
                 connected = true;
             }
-            const breaking = changes.filter(c => c.changeType === 'TABLE_REMOVED' ||
-                c.changeType === 'COLUMN_REMOVED' ||
-                c.changeType === 'COLUMN_TYPE_CHANGED').length;
+            const breaking = (0, breaking_js_1.countBreakingChanges)(changes);
             await producer.send({
                 topic,
                 messages: [
