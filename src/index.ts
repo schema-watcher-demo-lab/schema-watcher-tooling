@@ -34,7 +34,7 @@ export function parseArgs(argv: string[]): CLIArgs {
     .requiredOption('-r, --repo <owner/name>', 'Repository (owner/name)')
     .option('-p, --pr <number>', 'PR number')
     .option('--organization-id <id>', 'Organization ID for disambiguation')
-    .option('--api-endpoint <url>', 'Schema storage API endpoint', 'http://localhost:3000')
+    .option('--api-endpoint <url>', 'Schema storage API endpoint', '')
     .option('--api-key <key>', 'API key for schema storage')
     .option('--dry-run', 'Skip reporting, just output results', false)
     .option('--init', 'Initial full project scan (bootstrap)', false)
@@ -114,11 +114,15 @@ export async function runSchemaWatcher(
     console.log('No API key provided, skipping API report');
     return;
   }
+  const apiEndpoint = args.apiEndpoint || process.env.SCHEMA_API_ENDPOINT;
+  if (!apiEndpoint) {
+    throw new Error('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
+  }
   const changes = runtime.detectChanges({ includeAllFiles: args.init });
   console.log(`Detected ${changes.length} schema change(s)`);
 
   await runtime.postSchemaChanges({
-    apiEndpoint: args.apiEndpoint,
+    apiEndpoint,
     apiKey,
     repo: args.repo,
     pr: args.pr,

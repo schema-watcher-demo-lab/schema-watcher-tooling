@@ -22,7 +22,7 @@ crew-schema-watcher --repo owner/name --pr 123 \
 
 - `-r, --repo <owner/name>` - Repository (required)
 - `-p, --pr <number>` - PR number (required for PR mode)
-- `--api-endpoint <url>` - Schema storage API endpoint
+- `--api-endpoint <url>` - Schema storage API endpoint (required when `--api-key` or `CREW_API_KEY` is set; can also use `SCHEMA_API_ENDPOINT`)
 - `--api-key <key>` - API key for authentication
 - `--slack-webhook <url>` - Slack webhook URL
 - `--kafka-broker <address>` - Kafka broker address

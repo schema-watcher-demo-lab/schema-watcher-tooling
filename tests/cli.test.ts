@@ -94,4 +94,21 @@ describe('CLI', () => {
     expect(reportSlack).toHaveBeenCalledTimes(1);
     expect(reportKafka).toHaveBeenCalledTimes(1);
   });
+
+  it('requires api endpoint when api reporting is enabled', async () => {
+    const { runSchemaWatcher } = await import('../src/index');
+    const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+    const detectChanges = vi.fn().mockReturnValue([]);
+
+    await expect(
+      runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: '',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, { postSchemaChanges, detectChanges })
+    ).rejects.toThrow('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
+  });
 });
