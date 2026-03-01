@@ -23,6 +23,7 @@ type RuntimeDeps = {
     reportKafka: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
 export declare function runSchemaWatcher(args: CLIArgs, deps?: Partial<RuntimeDeps>): Promise<void>;
+export declare function runGit(args: string[]): string[];
 export declare function detectSchemaChangesFromWorkspace(opts?: {
     includeAllFiles?: boolean;
 }): SchemaChange[];
