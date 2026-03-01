@@ -6,6 +6,10 @@ permissions:
   pull-requests: read
 
 inputs:
+  api-key:
+    description: 'API key used when posting changes to Crew API'
+    required: false
+    default: ''
   api-endpoint:
     description: 'Schema storage API endpoint'
     required: false

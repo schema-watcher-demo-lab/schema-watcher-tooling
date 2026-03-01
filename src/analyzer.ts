@@ -138,9 +138,17 @@ export function analyzeChanges(oldSchema: TableSchema[], newSchema: TableSchema[
     }
   }
   
-  for (const [name] of oldTables) {
+  for (const [name, table] of oldTables) {
     if (!newTables.has(name)) {
       changes.push({ table: name, changeType: 'TABLE_REMOVED' });
+      for (const [colName, col] of Object.entries(table.columns)) {
+        changes.push({
+          table: name,
+          changeType: 'COLUMN_REMOVED',
+          column: colName,
+          oldType: col.type,
+        });
+      }
     }
   }
   

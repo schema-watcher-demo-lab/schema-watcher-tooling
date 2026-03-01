@@ -167,4 +167,37 @@ describe("analyzer", () => {
       ])
     );
   });
+
+  it("emits column removals when a table is removed", () => {
+    const changes = analyzeChanges(
+      [
+        {
+          name: "LegacyEvent",
+          columns: {
+            id: { type: "String", nullable: false },
+            payload: { type: "Json", nullable: true },
+          },
+        },
+      ],
+      []
+    );
+
+    expect(changes).toEqual(
+      expect.arrayContaining([
+        { table: "LegacyEvent", changeType: "TABLE_REMOVED" },
+        {
+          table: "LegacyEvent",
+          changeType: "COLUMN_REMOVED",
+          column: "id",
+          oldType: "String",
+        },
+        {
+          table: "LegacyEvent",
+          changeType: "COLUMN_REMOVED",
+          column: "payload",
+          oldType: "Json",
+        },
+      ])
+    );
+  });
 });
