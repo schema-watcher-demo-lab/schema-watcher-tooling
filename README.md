@@ -42,6 +42,12 @@ crew-schema-watcher --repo owner/name --pr 123 \
 
 See `.github/workflows/schema-watcher.yml` for example usage.
 
+## Endpoint Security
+
+- Public API endpoints must use `https://`.
+- Private/local `http://` endpoints are blocked by default.
+- For explicit local/dev use only, set `ALLOW_PRIVATE_API_ENDPOINTS=1`.
+
 ### Local Action + Backend E2E
 
 Use the canonical runbook at:

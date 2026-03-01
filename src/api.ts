@@ -47,8 +47,14 @@ function validateApiEndpoint(endpoint: string): URL {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new Error(`Unsupported API endpoint protocol: ${parsed.protocol}`);
   }
-  if (isPrivateHostname(parsed.hostname) && process.env.ALLOW_PRIVATE_API_ENDPOINTS !== "1") {
+  const isPrivateHost = isPrivateHostname(parsed.hostname);
+  const allowPrivate = process.env.ALLOW_PRIVATE_API_ENDPOINTS === "1";
+
+  if (isPrivateHost && !allowPrivate) {
     throw new Error(`Disallowed private API endpoint host: ${parsed.hostname}`);
+  }
+  if (parsed.protocol === "http:" && !isPrivateHost) {
+    throw new Error("Insecure API endpoint protocol: http (use https)");
   }
   return parsed;
 }
