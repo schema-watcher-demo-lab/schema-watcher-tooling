@@ -1,4 +1,5 @@
 import { IncomingWebhook } from '@slack/webhook';
+import { countBreakingChanges } from '../breaking.js';
 import type { SchemaChange } from '../types.js';
 
 export interface SlackReporter {
@@ -17,11 +18,7 @@ export function createSlackReporter(webhookUrl: string): SlackReporter {
   
   return {
     async report(changes: SchemaChange[], repo: string, pr: number): Promise<void> {
-      const breaking = changes.filter(c => 
-        c.changeType === 'TABLE_REMOVED' || 
-        c.changeType === 'COLUMN_REMOVED' ||
-        c.changeType === 'COLUMN_TYPE_CHANGED'
-      ).length;
+      const breaking = countBreakingChanges(changes);
       
       const blocks = [
         {

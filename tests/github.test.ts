@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGitHubClientWithOctokit } from "../src/github";
+import { createGitHubClientWithOctokit, parseGitHubDiff } from "../src/github";
 
 function b64(value: string): string {
   return Buffer.from(value, "utf8").toString("base64");
@@ -57,6 +57,33 @@ describe("github client", () => {
         oldContent: "create table removed(id int);",
         newContent: "",
         status: "deleted",
+      },
+    ]);
+  });
+});
+
+describe("parseGitHubDiff", () => {
+  it("reconstructs old and new content from unified diff hunks", () => {
+    const diff = [
+      "diff --git a/schema.sql b/schema.sql",
+      "index 1111111..2222222 100644",
+      "--- a/schema.sql",
+      "+++ b/schema.sql",
+      "@@ -1,2 +1,3 @@",
+      " CREATE TABLE users (",
+      "-  id INT",
+      "+  id BIGINT,",
+      "+  email TEXT",
+      " );",
+      "",
+    ].join("\n");
+
+    expect(parseGitHubDiff(diff)).toEqual([
+      {
+        filePath: "schema.sql",
+        oldContent: "CREATE TABLE users (\n  id INT\n);",
+        newContent: "CREATE TABLE users (\n  id BIGINT,\n  email TEXT\n);",
+        status: "modified",
       },
     ]);
   });

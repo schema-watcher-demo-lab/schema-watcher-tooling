@@ -1,4 +1,5 @@
 import { Kafka } from 'kafkajs';
+import { countBreakingChanges } from '../breaking.js';
 import type { SchemaChange } from '../types.js';
 
 export interface KafkaReporter {
@@ -19,11 +20,7 @@ export function createKafkaReporter(broker: string, topic: string): KafkaReporte
         connected = true;
       }
       
-      const breaking = changes.filter(c => 
-        c.changeType === 'TABLE_REMOVED' || 
-        c.changeType === 'COLUMN_REMOVED' ||
-        c.changeType === 'COLUMN_TYPE_CHANGED'
-      ).length;
+      const breaking = countBreakingChanges(changes);
       
       await producer.send({
         topic,
