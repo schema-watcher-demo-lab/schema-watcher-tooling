@@ -121,4 +121,50 @@ describe("analyzer", () => {
       },
     ]);
   });
+
+  it("uses deterministic best-fit pairing when multiple rename candidates share signatures", () => {
+    const changes = analyzeChanges(
+      [
+        {
+          name: "Contact",
+          columns: {
+            home_phone: { type: "String", nullable: false },
+            work_email: { type: "String", nullable: false },
+          },
+        },
+      ],
+      [
+        {
+          name: "Contact",
+          columns: {
+            business_email: { type: "String", nullable: false },
+            mobile_phone: { type: "String", nullable: false },
+          },
+        },
+      ]
+    );
+
+    expect(changes).toEqual(
+      expect.arrayContaining([
+        {
+          table: "Contact",
+          changeType: "COLUMN_RENAMED",
+          column: "business_email",
+          oldColumn: "work_email",
+          newColumn: "business_email",
+          oldType: "String",
+          newType: "String",
+        },
+        {
+          table: "Contact",
+          changeType: "COLUMN_RENAMED",
+          column: "mobile_phone",
+          oldColumn: "home_phone",
+          newColumn: "mobile_phone",
+          oldType: "String",
+          newType: "String",
+        },
+      ])
+    );
+  });
 });
