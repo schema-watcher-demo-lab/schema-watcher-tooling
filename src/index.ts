@@ -121,6 +121,11 @@ export async function runSchemaWatcher(
   const changes = runtime.detectChanges({ includeAllFiles: args.init });
   console.log(`Detected ${changes.length} schema change(s)`);
 
+  if (changes.length === 0) {
+    console.log('No schema changes detected, skipping API report');
+    return;
+  }
+
   await runtime.postSchemaChanges({
     apiEndpoint,
     apiKey,

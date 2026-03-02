@@ -52,6 +52,23 @@ describe('CLI', () => {
     expect(postSchemaChanges).not.toHaveBeenCalled();
   });
 
+  it('does not post changes when no schema changes are detected', async () => {
+    const { runSchemaWatcher } = await import('../src/index');
+    const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+    const detectChanges = vi.fn().mockReturnValue([]);
+
+    await runSchemaWatcher({
+      repo: 'test/repo',
+      pr: 42,
+      apiEndpoint: 'http://localhost:3000',
+      apiKey: 'test-api-key',
+      dryRun: false,
+      init: false,
+    }, { postSchemaChanges, detectChanges });
+
+    expect(postSchemaChanges).not.toHaveBeenCalled();
+  });
+
   it('runs init mode using full schema-file scan', async () => {
     const { runSchemaWatcher } = await import('../src/index');
     const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
