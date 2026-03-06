@@ -9,6 +9,7 @@ export interface GitHubClient {
 }
 
 export const SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
+const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 
 function withSingleSchemaWatcherMarker(body: string): string {
   const bodyWithoutMarkers = body.split(SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
@@ -29,6 +30,70 @@ function mapFileStatus(status: string): 'added' | 'modified' | 'deleted' {
 
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   let lastError: Error | undefined;
+  const baseDelayMs = 100;
+
+  const getRetryDelayMs = (error: unknown, attempt: number): number => {
+    if (!error || typeof error !== 'object') {
+      return Math.pow(2, attempt) * baseDelayMs;
+    }
+
+    const response = (error as { response?: unknown }).response;
+    if (response && typeof response === 'object') {
+      const headers = (response as { headers?: unknown }).headers;
+
+      const retryAfterValue = (() => {
+        if (!headers) return undefined;
+        if (headers instanceof Headers) {
+          return headers.get('retry-after') ?? undefined;
+        }
+        if (typeof headers === 'object') {
+          const retryAfter = (headers as Record<string, unknown>)['retry-after'];
+          return typeof retryAfter === 'string' ? retryAfter : undefined;
+        }
+        return undefined;
+      })();
+
+      if (retryAfterValue) {
+        const seconds = Number(retryAfterValue);
+        if (!Number.isNaN(seconds)) {
+          return Math.max(0, seconds * 1000);
+        }
+
+        const when = Date.parse(retryAfterValue);
+        if (!Number.isNaN(when)) {
+          return Math.max(0, when - Date.now());
+        }
+      }
+    }
+
+    return Math.pow(2, attempt) * baseDelayMs;
+  };
+
+  const shouldRetry = (error: unknown): boolean => {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    if ('status' in error && typeof (error as { status?: unknown }).status === 'number') {
+      const status = (error as { status: number }).status;
+      if (status === 403 || status === 429) return true;
+      if (status >= 500 && status <= 599) return true;
+    }
+
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string') {
+      const transientCodes = new Set([
+        'ECONNRESET',
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'ETIMEDOUT',
+        'EAI_AGAIN',
+      ]);
+      if (transientCodes.has(code)) return true;
+    }
+
+    return false;
+  };
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -36,17 +101,13 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
     } catch (error: unknown) {
       lastError = error instanceof Error ? error : new Error(String(error));
       
-      if (error && typeof error === 'object' && 'status' in error) {
-        const status = (error as { status: number }).status;
-        
-        if (status === 403 || status === 429) {
-          const waitTime = Math.pow(2, attempt) * 1000;
-          console.warn(`Rate limited, retrying in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          continue;
-        }
+      if (shouldRetry(error) && attempt < maxRetries - 1) {
+        const waitTime = getRetryDelayMs(error, attempt);
+        console.warn(`Request failed, retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
       }
-      
+
       throw error;
     }
   }
@@ -65,8 +126,9 @@ type OctokitLike = {
     };
     issues: {
       createComment(params: { owner: string; repo: string; issue_number: number; body: string }): Promise<unknown>;
-      listComments(params: { owner: string; repo: string; issue_number: number; per_page?: number; page?: number }): Promise<{ data: Array<{ id: number; body?: string | null }> }>;
+      listComments(params: { owner: string; repo: string; issue_number: number; per_page?: number; page?: number }): Promise<{ data: Array<{ id: number; body?: string | null; user?: { login?: string | null } | null }> }>;
       updateComment(params: { owner: string; repo: string; comment_id: number; body: string }): Promise<unknown>;
+      deleteComment?(params: { owner: string; repo: string; comment_id: number }): Promise<unknown>;
     };
   };
 };
@@ -109,8 +171,8 @@ async function listAllIssueComments(
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<Array<{ id: number; body?: string | null }>> {
-  const comments: Array<{ id: number; body?: string | null }> = [];
+): Promise<Array<{ id: number; body?: string | null; user?: { login?: string | null } | null }>> {
+  const comments: Array<{ id: number; body?: string | null; user?: { login?: string | null } | null }> = [];
   let page = 1;
 
   while (true) {
@@ -232,8 +294,16 @@ export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClien
       await withRetry(async () => {
         const comments = await listAllIssueComments(octokit, owner, repo, prNumber);
 
-        const existingComment = comments.find(comment =>
-          typeof comment.body === 'string' && comment.body.includes(SCHEMA_WATCHER_COMMENT_MARKER)
+        const botMarkerComments = comments.filter(
+          (comment) =>
+            typeof comment.body === 'string' &&
+            comment.body.includes(SCHEMA_WATCHER_COMMENT_MARKER) &&
+            comment.user?.login === GITHUB_ACTIONS_BOT_LOGIN,
+        );
+
+        const existingComment = botMarkerComments.reduce<typeof botMarkerComments[number] | undefined>(
+          (newest, comment) => (newest === undefined || comment.id > newest.id ? comment : newest),
+          undefined,
         );
 
         if (existingComment) {
@@ -243,6 +313,22 @@ export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClien
             comment_id: existingComment.id,
             body: markerBody,
           });
+
+          if (octokit.rest.issues.deleteComment) {
+            const duplicateComments = botMarkerComments.filter((comment) => comment.id !== existingComment.id);
+            for (const duplicateComment of duplicateComments) {
+              try {
+                await octokit.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: duplicateComment.id,
+                });
+              } catch {
+                // Best effort cleanup only.
+              }
+            }
+          }
+
           return;
         }
 
