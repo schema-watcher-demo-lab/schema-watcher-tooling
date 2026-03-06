@@ -107,5 +107,10 @@ async function postSchemaChanges(input) {
         const body = await response.text();
         throw new Error(`Schema API request failed (${response.status}): ${body}`);
     }
+    const createdChange = (await response.json());
+    if (createdChange && typeof createdChange === 'object') {
+        return createdChange;
+    }
+    throw new Error('Schema API response missing change payload');
 }
 //# sourceMappingURL=api.js.map

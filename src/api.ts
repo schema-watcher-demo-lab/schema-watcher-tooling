@@ -10,6 +10,17 @@ export interface PostSchemaChangesInput {
   changes: SchemaChange[];
 }
 
+export interface PostSchemaChangesResult {
+  id: string;
+  repositoryId: string;
+  organizationId: string;
+  pr: number;
+  changes: string;
+  status: string;
+  isBreaking: boolean;
+  createdAt: string;
+}
+
 type LookupFn = typeof lookup;
 let lookupFn: LookupFn = lookup;
 
@@ -97,7 +108,7 @@ async function validateApiEndpoint(endpoint: string): Promise<URL> {
   return parsed;
 }
 
-export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<void> {
+export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<PostSchemaChangesResult> {
   const validated = await validateApiEndpoint(input.apiEndpoint);
   const url = `${normalizeEndpoint(validated.toString())}/api/changes`;
   const response = await fetch(url, {
@@ -118,4 +129,11 @@ export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<
     const body = await response.text();
     throw new Error(`Schema API request failed (${response.status}): ${body}`);
   }
+
+  const createdChange = (await response.json()) as unknown;
+  if (createdChange && typeof createdChange === 'object') {
+    return createdChange as PostSchemaChangesResult;
+  }
+
+  throw new Error('Schema API response missing change payload');
 }

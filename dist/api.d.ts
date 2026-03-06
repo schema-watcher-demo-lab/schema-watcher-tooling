@@ -8,8 +8,18 @@ export interface PostSchemaChangesInput {
     organizationId?: string;
     changes: SchemaChange[];
 }
+export interface PostSchemaChangesResult {
+    id: string;
+    repositoryId: string;
+    organizationId: string;
+    pr: number;
+    changes: string;
+    status: string;
+    isBreaking: boolean;
+    createdAt: string;
+}
 type LookupFn = typeof lookup;
 export declare function setLookupForTests(nextLookup: LookupFn | null): void;
-export declare function postSchemaChanges(input: PostSchemaChangesInput): Promise<void>;
+export declare function postSchemaChanges(input: PostSchemaChangesInput): Promise<PostSchemaChangesResult>;
 export {};
 //# sourceMappingURL=api.d.ts.map

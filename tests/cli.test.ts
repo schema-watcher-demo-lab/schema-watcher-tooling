@@ -226,7 +226,7 @@ describe('CLI', () => {
     }
   });
 
-  it('builds GitHub comment payload with marker, heading, and PR links', async () => {
+  it('builds GitHub comment payload with marker, heading, schema history, and PR links', async () => {
     const previousToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-github-token';
 
@@ -240,6 +240,7 @@ describe('CLI', () => {
         pr: 77,
         apiEndpoint: 'http://localhost:3000',
         apiKey: 'test-api-key',
+        schemaChangeOrganizationId: 'org_mock_repos',
         dryRun: false,
         init: false,
       }, [
@@ -252,7 +253,7 @@ describe('CLI', () => {
       expect(markerOccurrences).toBe(1);
       expect(upsertComment).toHaveBeenCalledWith('owner', 'repo', 77, expect.stringContaining('## Crew Schema Watcher'));
       expect(payload).toContain('Detected schema diff');
-      expect(payload).toContain('- [schema](https://github.com/owner/repo/pull/77) [change](https://github.com/owner/repo/pull/77)');
+      expect(payload).toContain('- [schema](http://localhost:3000/schemas/org_mock_repos/repo/history) [change](https://github.com/owner/repo/pull/77)');
       expect(payload).toContain('- `products`: COLUMN_ADDED (`currency`)');
       expect(payload).toContain('- `orders`: TABLE_ADDED');
     } finally {

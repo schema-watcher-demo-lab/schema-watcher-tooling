@@ -57,8 +57,27 @@ function validateUrl(url, name) {
         throw new Error(`Invalid ${name}: ${url}`);
     }
 }
-function buildPrCommentHeader(prUrl) {
-    return `- [schema](${prUrl}) [change](${prUrl})`;
+function buildSchemaHistoryUrl(args) {
+    const sourceOrgId = args.schemaChangeOrganizationId;
+    if (!sourceOrgId)
+        return null;
+    const repoParts = parseRepoOwnerAndName(args.repo);
+    if (!repoParts?.repo)
+        return null;
+    if (!args.apiEndpoint)
+        return null;
+    try {
+        return `${new URL(args.apiEndpoint).origin}/schemas/${sourceOrgId}/${repoParts.repo}/history`;
+    }
+    catch {
+        return null;
+    }
+}
+function buildPrCommentHeader(prUrl, schemaHistoryUrl) {
+    if (!schemaHistoryUrl) {
+        return `- [schema](${prUrl}) [change](${prUrl})`;
+    }
+    return `- [schema](${schemaHistoryUrl}) [change](${prUrl})`;
 }
 function summarizeSchemaChange(change) {
     if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
@@ -69,10 +88,10 @@ function summarizeSchemaChange(change) {
     }
     return change.changeType;
 }
-function buildGitHubCommentBody(changes, prUrl) {
+function buildGitHubCommentBody(changes, prUrl, schemaHistoryUrl) {
     const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
     const header = prUrl
-        ? `${buildPrCommentHeader(prUrl)}
+        ? `${buildPrCommentHeader(prUrl, schemaHistoryUrl ?? null)}
 
 Detected schema diff:`
         : 'Schema diff:';
@@ -124,7 +143,8 @@ async function reportGitHubCommentDefault(args, changes, createClient = github_j
     }
     const client = createClient(token);
     const prUrl = `https://github.com/${args.repo}/pull/${args.pr}`;
-    const body = buildGitHubCommentBody(changes, prUrl);
+    const schemaHistoryUrl = buildSchemaHistoryUrl(args);
+    const body = buildGitHubCommentBody(changes, prUrl, schemaHistoryUrl);
     await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 async function runSchemaWatcher(args, deps = {
@@ -157,6 +177,7 @@ async function runSchemaWatcher(args, deps = {
     const apiEndpoint = args.apiEndpoint || process.env.SCHEMA_API_ENDPOINT;
     const apiReportingEnabled = Boolean(apiKey);
     let reportedToApi = false;
+    let schemaChange = null;
     if (!apiReportingEnabled) {
         console.log('No API key provided, skipping API report');
     }
@@ -170,7 +191,7 @@ async function runSchemaWatcher(args, deps = {
         return;
     }
     if (apiReportingEnabled) {
-        await runtime.postSchemaChanges({
+        schemaChange = await runtime.postSchemaChanges({
             apiEndpoint: apiEndpoint,
             apiKey: apiKey,
             repo: args.repo,
@@ -184,7 +205,10 @@ async function runSchemaWatcher(args, deps = {
     const isPullRequestEvent = !eventName || eventName === 'pull_request';
     if (isPullRequestEvent && process.env.GITHUB_TOKEN) {
         try {
-            await runtime.reportGitHubComment(args, changes);
+            await runtime.reportGitHubComment({
+                ...args,
+                schemaChangeOrganizationId: schemaChange?.organizationId,
+            }, changes);
         }
         catch (error) {
             console.warn('GitHub comment reporting failed:', error instanceof Error ? error.message : String(error));
