@@ -1,4 +1,26 @@
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+function writeRepoFile(repoPath: string, relativePath: string, content: string): void {
+  const fullPath = path.join(repoPath, relativePath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content, 'utf8');
+}
+
+function createTempRepo(prefix: string): string {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
+  git(repoPath, ['init', '--initial-branch=main']);
+  git(repoPath, ['config', 'user.name', 'Schema Watcher Tests']);
+  git(repoPath, ['config', 'user.email', 'tests@example.com']);
+  return repoPath;
+}
 
 describe('CLI', () => {
   it('should export parseArgs function', async () => {
@@ -45,6 +67,7 @@ describe('CLI', () => {
       changes: [
         { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
       ],
+      event: 'merge',
     });
   });
 
@@ -167,7 +190,44 @@ describe('CLI', () => {
     }
   });
 
-  it('builds GitHub comment payload with single marker, watcher heading, and summary lines', async () => {
+  it('reports GitHub comment even when API key is missing', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([
+        { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
+      ]);
+      const reportGitHubComment = vi.fn().mockResolvedValue(undefined);
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        dryRun: false,
+        init: false,
+      }, { postSchemaChanges, detectChanges, reportGitHubComment });
+
+      expect(postSchemaChanges).not.toHaveBeenCalled();
+      expect(reportGitHubComment).toHaveBeenCalledTimes(1);
+      expect(reportGitHubComment).toHaveBeenCalledWith(
+        expect.objectContaining({ repo: 'test/repo', pr: 42 }),
+        [
+          { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
+        ]
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it('builds GitHub comment payload with marker, heading, schema history, and PR links', async () => {
     const previousToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-github-token';
 
@@ -181,6 +241,7 @@ describe('CLI', () => {
         pr: 77,
         apiEndpoint: 'http://localhost:3000',
         apiKey: 'test-api-key',
+        schemaChangeOrganizationId: 'org_mock_repos',
         dryRun: false,
         init: false,
       }, [
@@ -191,24 +252,11 @@ describe('CLI', () => {
       const payload = upsertComment.mock.calls[0]?.[3] as string;
       const markerOccurrences = (payload.match(/<!-- crew-schema-watcher -->/g) ?? []).length;
       expect(markerOccurrences).toBe(1);
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('## Crew Schema Watcher')
-      );
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('- `products`: COLUMN_ADDED (`currency`)')
-      );
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('- `orders`: TABLE_ADDED')
-      );
+      expect(upsertComment).toHaveBeenCalledWith('owner', 'repo', 77, expect.stringContaining('## Crew Schema Watcher'));
+      expect(payload).toContain('Detected schema diff');
+      expect(payload).toContain('- [schema](http://localhost:3000/schemas/org_mock_repos/repo) [change](http://localhost:3000/schemas/org_mock_repos/repo/history)');
+      expect(payload).toContain('- `products`: COLUMN_ADDED (`currency`)');
+      expect(payload).toContain('- `orders`: TABLE_ADDED');
     } finally {
       if (previousToken === undefined) {
         delete process.env.GITHUB_TOKEN;
@@ -394,5 +442,140 @@ describe('CLI', () => {
         init: false,
       }, { postSchemaChanges, detectChanges })
     ).rejects.toThrow('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
+  });
+
+  it('uses merge-base for PR mode so file selection and old reads align', async () => {
+    const previousCwd = process.cwd();
+    const previousBaseSha = process.env.PR_BASE_SHA;
+    const repoPath = createTempRepo('schema-watcher-pr-mode');
+
+    try {
+      writeRepoFile(repoPath, 'prisma/schema.prisma', [
+        'model users {',
+        '  id Int @id',
+        '}',
+        '',
+      ].join('\n'));
+      git(repoPath, ['add', '.']);
+      git(repoPath, ['commit', '-m', 'baseline']);
+
+      git(repoPath, ['checkout', '-b', 'feature']);
+      writeRepoFile(repoPath, 'prisma/schema.prisma', [
+        'model users {',
+        '  id Int @id',
+        '  name String',
+        '}',
+        '',
+      ].join('\n'));
+      git(repoPath, ['add', 'prisma/schema.prisma']);
+      git(repoPath, ['commit', '-m', 'feature adds name']);
+
+      git(repoPath, ['checkout', 'main']);
+      writeRepoFile(repoPath, 'prisma/schema.prisma', [
+        'model users {',
+        '  id Int @id',
+        '  email String',
+        '}',
+        '',
+      ].join('\n'));
+      git(repoPath, ['add', 'prisma/schema.prisma']);
+      git(repoPath, ['commit', '-m', 'main adds email']);
+      const movedBaseSha = git(repoPath, ['rev-parse', 'HEAD']);
+
+      git(repoPath, ['checkout', 'feature']);
+      process.chdir(repoPath);
+      process.env.PR_BASE_SHA = movedBaseSha;
+
+      const { detectSchemaChangesFromWorkspace } = await import('../src/index');
+      const changes = detectSchemaChangesFromWorkspace();
+
+      expect(changes).toContainEqual({
+        table: 'users',
+        changeType: 'COLUMN_ADDED',
+        column: 'name',
+        newType: 'String',
+      });
+      expect(changes).not.toContainEqual(expect.objectContaining({
+        table: 'users',
+        changeType: 'COLUMN_REMOVED',
+        column: 'email',
+      }));
+    } finally {
+      process.chdir(previousCwd);
+      if (previousBaseSha === undefined) {
+        delete process.env.PR_BASE_SHA;
+      } else {
+        process.env.PR_BASE_SHA = previousBaseSha;
+      }
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  it('uses explicit push before/after range instead of HEAD-local diffing', async () => {
+    const previousCwd = process.cwd();
+    const previousPushBefore = process.env.PUSH_BEFORE_SHA;
+    const previousPushAfter = process.env.PUSH_AFTER_SHA;
+    const previousEventName = process.env.GITHUB_EVENT_NAME;
+    const repoPath = createTempRepo('schema-watcher-push-mode');
+
+    try {
+      writeRepoFile(repoPath, 'prisma/schema.prisma', [
+        'model users {',
+        '  id Int @id',
+        '}',
+        '',
+      ].join('\n'));
+      git(repoPath, ['add', '.']);
+      git(repoPath, ['commit', '-m', 'baseline']);
+      const beforeSha = git(repoPath, ['rev-parse', 'HEAD']);
+
+      writeRepoFile(repoPath, 'prisma/schema.prisma', [
+        'model users {',
+        '  id Int @id',
+        '  name String',
+        '}',
+        '',
+      ].join('\n'));
+      git(repoPath, ['add', 'prisma/schema.prisma']);
+      git(repoPath, ['commit', '-m', 'schema change commit']);
+      const afterSha = git(repoPath, ['rev-parse', 'HEAD']);
+
+      writeRepoFile(repoPath, 'README.md', 'docs-only follow-up\n');
+      git(repoPath, ['add', 'README.md']);
+      git(repoPath, ['commit', '-m', 'docs only']);
+
+      process.chdir(repoPath);
+      process.env.GITHUB_EVENT_NAME = 'push';
+      process.env.PUSH_BEFORE_SHA = beforeSha;
+      process.env.PUSH_AFTER_SHA = afterSha;
+
+      const { detectSchemaChangesFromWorkspace } = await import('../src/index');
+      const changes = detectSchemaChangesFromWorkspace();
+
+      expect(changes).toContainEqual({
+        table: 'users',
+        changeType: 'COLUMN_ADDED',
+        column: 'name',
+        newType: 'String',
+      });
+    } finally {
+      process.chdir(previousCwd);
+      if (previousPushBefore === undefined) {
+        delete process.env.PUSH_BEFORE_SHA;
+      } else {
+        process.env.PUSH_BEFORE_SHA = previousPushBefore;
+      }
+      if (previousPushAfter === undefined) {
+        delete process.env.PUSH_AFTER_SHA;
+      } else {
+        process.env.PUSH_AFTER_SHA = previousPushAfter;
+      }
+      if (previousEventName === undefined) {
+        delete process.env.GITHUB_EVENT_NAME;
+      } else {
+        process.env.GITHUB_EVENT_NAME = previousEventName;
+      }
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
   });
 });

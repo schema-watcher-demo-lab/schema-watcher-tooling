@@ -2,15 +2,23 @@ name: Schema Watcher
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
 
 jobs:
   schema-watcher:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout (PR)
+        if: github.event.action != 'closed' || !github.event.pull_request.merged
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          fetch-depth: 2
+
+      - name: Checkout (merge commit)
+        if: github.event.action == 'closed' && github.event.pull_request.merged
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 2
 
       - name: Setup Bun
@@ -31,6 +39,7 @@ jobs:
           KAFKA_BROKER: ${{ secrets.KAFKA_BROKER }}
           KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
           PR_NUMBER: ${{ github.event.pull_request.number || 1 }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
 
