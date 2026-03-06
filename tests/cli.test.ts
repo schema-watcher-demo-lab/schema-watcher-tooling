@@ -252,6 +252,48 @@ describe('CLI', () => {
     }
   });
 
+  it('skips GitHub PR comment upsert on non-pull_request events', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    const previousEventName = process.env.GITHUB_EVENT_NAME;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+    process.env.GITHUB_EVENT_NAME = 'push';
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([{ table: 'users', changeType: 'TABLE_ADDED' }]);
+      const reportGitHubComment = vi.fn().mockResolvedValue(undefined);
+      const deps = {
+        postSchemaChanges,
+        detectChanges,
+        reportGitHubComment,
+      } as Parameters<typeof runSchemaWatcher>[1];
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, deps);
+
+      expect(reportGitHubComment).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+
+      if (previousEventName === undefined) {
+        delete process.env.GITHUB_EVENT_NAME;
+      } else {
+        process.env.GITHUB_EVENT_NAME = previousEventName;
+      }
+    }
+  });
+
   it('warns and continues when GitHub PR comment upsert fails', async () => {
     const previousToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-github-token';

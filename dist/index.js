@@ -102,6 +102,9 @@ function parseRepoOwnerAndName(repoRef) {
 async function reportGitHubCommentDefault(args, changes, createClient = github_js_1.createGitHubClient) {
     if (!args.pr)
         return;
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    if (eventName && eventName !== 'pull_request')
+        return;
     const token = process.env.GITHUB_TOKEN;
     if (!token)
         return;
@@ -162,7 +165,9 @@ async function runSchemaWatcher(args, deps = {
         organizationId: args.organizationId,
         changes,
     });
-    if (process.env.GITHUB_TOKEN) {
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    const isPullRequestEvent = !eventName || eventName === 'pull_request';
+    if (isPullRequestEvent && process.env.GITHUB_TOKEN) {
         try {
             await runtime.reportGitHubComment(args, changes);
         }
@@ -249,9 +254,17 @@ function walkFiles(root) {
     }
     return results;
 }
+function resolvePullRequestBaseSha() {
+    const value = process.env.PR_BASE_SHA?.trim();
+    if (!value) {
+        return null;
+    }
+    return value;
+}
 function detectSchemaChangesFromWorkspace(opts) {
     const parser = new index_js_1.ParserRegistry();
     const includeAllFiles = opts?.includeAllFiles === true;
+    const prBaseRevision = includeAllFiles ? null : resolvePullRequestBaseSha();
     const changedFiles = new Set();
     if (includeAllFiles) {
         const cwd = process.cwd();
@@ -263,18 +276,26 @@ function detectSchemaChangesFromWorkspace(opts) {
         }
     }
     else {
-        for (const file of runGit(['diff', '--name-only', 'HEAD']))
-            changedFiles.add(file);
-        for (const file of runGit(['diff', '--cached', '--name-only']))
-            changedFiles.add(file);
-        for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD']))
-            changedFiles.add(file);
+        if (prBaseRevision) {
+            for (const file of runGit(['diff', '--name-only', `${prBaseRevision}...HEAD`]))
+                changedFiles.add(file);
+        }
+        else {
+            for (const file of runGit(['diff', '--name-only', 'HEAD']))
+                changedFiles.add(file);
+            for (const file of runGit(['diff', '--cached', '--name-only']))
+                changedFiles.add(file);
+            for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD']))
+                changedFiles.add(file);
+        }
     }
     const schemaFiles = [...changedFiles].filter(detector_js_1.isSchemaFile);
     if (schemaFiles.length === 0)
         return [];
     const changes = [];
-    const baseRevision = includeAllFiles ? null : runGit(['rev-parse', '--verify', 'HEAD~1'])[0] || null;
+    const baseRevision = includeAllFiles
+        ? null
+        : (prBaseRevision ?? runGit(['rev-parse', '--verify', 'HEAD~1'])[0] ?? null);
     if (!includeAllFiles && !baseRevision) {
         console.warn('Skipping schema detection: shallow clone missing HEAD~1 baseline');
         return [];
