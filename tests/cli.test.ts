@@ -6,6 +6,19 @@ describe('CLI', () => {
     expect(typeof parseArgs).toBe('function');
   });
 
+  it('fails fast when --pr is not a valid integer', async () => {
+    const { parseArgs } = await import('../src/index');
+
+    expect(() => parseArgs([
+      'node',
+      'crew-schema-watcher',
+      '--repo',
+      'test/repo',
+      '--pr',
+      'abc',
+    ])).toThrow('--pr must be a positive integer');
+  });
+
   it('posts changes to API when api key is provided', async () => {
     const { runSchemaWatcher } = await import('../src/index');
     const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
@@ -110,6 +123,221 @@ describe('CLI', () => {
 
     expect(reportSlack).toHaveBeenCalledTimes(1);
     expect(reportKafka).toHaveBeenCalledTimes(1);
+  });
+
+  it('upserts a GitHub PR comment when token exists and changes are detected', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([
+        { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
+      ]);
+      const reportGitHubComment = vi.fn().mockResolvedValue(undefined);
+      const deps = {
+        postSchemaChanges,
+        detectChanges,
+        reportGitHubComment,
+      } as Parameters<typeof runSchemaWatcher>[1];
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, deps);
+
+      expect(reportGitHubComment).toHaveBeenCalledTimes(1);
+      expect(reportGitHubComment).toHaveBeenCalledWith(
+        expect.objectContaining({ repo: 'test/repo', pr: 42 }),
+        [
+          { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
+        ]
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it('builds GitHub comment payload with marker, header, and summary lines', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+
+    try {
+      const { reportGitHubCommentDefault } = await import('../src/index');
+      const upsertComment = vi.fn().mockResolvedValue(undefined);
+      const createGitHubClient = vi.fn().mockReturnValue({ upsertComment });
+
+      await reportGitHubCommentDefault({
+        repo: 'owner/repo',
+        pr: 77,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, [
+        { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
+        { table: 'orders', changeType: 'TABLE_ADDED' },
+      ], createGitHubClient);
+
+      expect(upsertComment).toHaveBeenCalledWith(
+        'owner',
+        'repo',
+        77,
+        expect.stringContaining('<!-- crew-schema-watcher -->')
+      );
+      expect(upsertComment).toHaveBeenCalledWith(
+        'owner',
+        'repo',
+        77,
+        expect.stringContaining('## Schema Change Summary')
+      );
+      expect(upsertComment).toHaveBeenCalledWith(
+        'owner',
+        'repo',
+        77,
+        expect.stringContaining('- `products`: COLUMN_ADDED (`currency`)')
+      );
+      expect(upsertComment).toHaveBeenCalledWith(
+        'owner',
+        'repo',
+        77,
+        expect.stringContaining('- `orders`: TABLE_ADDED')
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it('skips GitHub PR comment upsert when token is missing', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([{ table: 'users', changeType: 'TABLE_ADDED' }]);
+      const reportGitHubComment = vi.fn().mockResolvedValue(undefined);
+      const deps = {
+        postSchemaChanges,
+        detectChanges,
+        reportGitHubComment,
+      } as Parameters<typeof runSchemaWatcher>[1];
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, deps);
+
+      expect(reportGitHubComment).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it('warns and continues when GitHub PR comment upsert fails', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([{ table: 'users', changeType: 'TABLE_ADDED' }]);
+      const reportGitHubComment = vi.fn().mockImplementation(async () => {
+        throw new Error('boom');
+      });
+      const deps = {
+        postSchemaChanges,
+        detectChanges,
+        reportGitHubComment,
+      } as Parameters<typeof runSchemaWatcher>[1];
+
+      await expect(runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, deps)).resolves.toBeUndefined();
+
+      expect(postSchemaChanges).toHaveBeenCalledTimes(1);
+      expect(reportGitHubComment).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith('GitHub comment reporting failed:', 'boom');
+    } finally {
+      warnSpy.mockRestore();
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it('warns and skips upsert when repo format is invalid for GitHub reporting', async () => {
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-github-token';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { runSchemaWatcher, reportGitHubCommentDefault } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([{ table: 'users', changeType: 'TABLE_ADDED' }]);
+      const upsertComment = vi.fn().mockResolvedValue(undefined);
+      const createGitHubClient = vi.fn().mockReturnValue({ upsertComment });
+      const reportGitHubComment = (
+        args: Parameters<typeof reportGitHubCommentDefault>[0],
+        changes: Parameters<typeof reportGitHubCommentDefault>[1],
+      ) => reportGitHubCommentDefault(args, changes, createGitHubClient);
+
+      await expect(runSchemaWatcher({
+        repo: 'owner/repo/extra',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, {
+        postSchemaChanges,
+        detectChanges,
+        reportGitHubComment,
+      })).resolves.toBeUndefined();
+
+      expect(createGitHubClient).not.toHaveBeenCalled();
+      expect(upsertComment).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        'GitHub comment reporting failed:',
+        'Invalid repo format: owner/repo/extra. Expected owner/name'
+      );
+    } finally {
+      warnSpy.mockRestore();
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
   });
 
   it('requires api endpoint when api reporting is enabled', async () => {
