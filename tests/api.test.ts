@@ -16,7 +16,7 @@ describe('api client', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
-      text: async () => '',
+      json: async () => ({ id: 'ch_1', repositoryId: 'repo_1', organizationId: 'org_1', pr: 123, changes: '[]', status: 'detected', isBreaking: false, createdAt: '2026-03-06T00:00:00Z' }),
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -140,7 +140,7 @@ describe('api client', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
-      text: async () => '',
+      json: async () => ({ id: 'ch_1', repositoryId: 'repo_1', organizationId: 'org_1', pr: 1, changes: '[]', status: 'detected', isBreaking: false, createdAt: '2026-03-06T00:00:00Z' }),
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -158,6 +158,74 @@ describe('api client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://localhost:3000/api/changes');
+  });
+
+  it('includes event field in the request body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 'ch_1', repositoryId: 'repo_1', organizationId: 'org_1', pr: 1, changes: '[]', status: 'detected', isBreaking: false, createdAt: '2026-03-06T00:00:00Z' }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    setLookupForTests(async () => [{ address: '93.184.216.34' }]);
+    await postSchemaChanges({
+      apiEndpoint: 'https://api.example.com',
+      apiKey: 'test-api-key',
+      repo: 'test/repo',
+      pr: 123,
+      changes: [],
+      event: 'pr',
+    });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.event).toBe('pr');
+  });
+
+  it('returns synthetic result for 204 close response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      text: async () => '',
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    setLookupForTests(async () => [{ address: '93.184.216.34' }]);
+    const result = await postSchemaChanges({
+      apiEndpoint: 'https://api.example.com',
+      apiKey: 'test-api-key',
+      repo: 'test/repo',
+      pr: 42,
+      changes: [],
+      event: 'close',
+    });
+
+    expect(result.status).toBe('closed');
+    expect(result.pr).toBe(42);
+    expect(result.id).toBe('');
+  });
+
+  it('sends request without event field when not provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 'ch_1', repositoryId: 'repo_1', organizationId: 'org_1', pr: 1, changes: '[]', status: 'detected', isBreaking: false, createdAt: '2026-03-06T00:00:00Z' }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    setLookupForTests(async () => [{ address: '93.184.216.34' }]);
+    await postSchemaChanges({
+      apiEndpoint: 'https://api.example.com',
+      apiKey: 'test-api-key',
+      repo: 'test/repo',
+      pr: 1,
+      changes: [],
+    });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.event).toBeUndefined();
   });
 
   it('rejects domains that resolve to private addresses', async () => {
