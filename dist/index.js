@@ -57,7 +57,7 @@ function validateUrl(url, name) {
         throw new Error(`Invalid ${name}: ${url}`);
     }
 }
-function buildSchemaHistoryUrl(args) {
+function buildSchemaUrls(args) {
     const sourceOrgId = args.schemaChangeOrganizationId;
     if (!sourceOrgId)
         return null;
@@ -67,17 +67,19 @@ function buildSchemaHistoryUrl(args) {
     if (!args.apiEndpoint)
         return null;
     try {
-        return `${new URL(args.apiEndpoint).origin}/schemas/${sourceOrgId}/${repoParts.repo}/history`;
+        const origin = new URL(args.apiEndpoint).origin;
+        const base = `${origin}/schemas/${sourceOrgId}/${repoParts.repo}`;
+        return { schemaUrl: base, historyUrl: `${base}/history` };
     }
     catch {
         return null;
     }
 }
-function buildPrCommentHeader(prUrl, schemaHistoryUrl) {
-    if (!schemaHistoryUrl) {
+function buildPrCommentHeader(prUrl, urls) {
+    if (!urls) {
         return `- [schema](${prUrl}) [change](${prUrl})`;
     }
-    return `- [schema](${schemaHistoryUrl}) [change](${prUrl})`;
+    return `- [schema](${urls.schemaUrl}) [change](${urls.historyUrl})`;
 }
 function summarizeSchemaChange(change) {
     if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
@@ -88,10 +90,10 @@ function summarizeSchemaChange(change) {
     }
     return change.changeType;
 }
-function buildGitHubCommentBody(changes, prUrl, schemaHistoryUrl) {
+function buildGitHubCommentBody(changes, prUrl, schemaUrls) {
     const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
     const header = prUrl
-        ? `${buildPrCommentHeader(prUrl, schemaHistoryUrl ?? null)}
+        ? `${buildPrCommentHeader(prUrl, schemaUrls ?? null)}
 
 Detected schema diff:`
         : 'Schema diff:';
@@ -143,8 +145,8 @@ async function reportGitHubCommentDefault(args, changes, createClient = github_j
     }
     const client = createClient(token);
     const prUrl = `https://github.com/${args.repo}/pull/${args.pr}`;
-    const schemaHistoryUrl = buildSchemaHistoryUrl(args);
-    const body = buildGitHubCommentBody(changes, prUrl, schemaHistoryUrl);
+    const schemaUrls = buildSchemaUrls(args);
+    const body = buildGitHubCommentBody(changes, prUrl, schemaUrls);
     await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 async function runSchemaWatcher(args, deps = {

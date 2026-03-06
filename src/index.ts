@@ -74,7 +74,7 @@ type RuntimeDeps = {
   reportGitHubComment: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
 
-function buildSchemaHistoryUrl(args: CLIArgs): string | null {
+function buildSchemaUrls(args: CLIArgs): { schemaUrl: string; historyUrl: string } | null {
   const sourceOrgId = args.schemaChangeOrganizationId;
   if (!sourceOrgId) return null;
 
@@ -83,18 +83,20 @@ function buildSchemaHistoryUrl(args: CLIArgs): string | null {
 
   if (!args.apiEndpoint) return null;
   try {
-    return `${new URL(args.apiEndpoint).origin}/schemas/${sourceOrgId}/${repoParts.repo}/history`;
+    const origin = new URL(args.apiEndpoint).origin;
+    const base = `${origin}/schemas/${sourceOrgId}/${repoParts.repo}`;
+    return { schemaUrl: base, historyUrl: `${base}/history` };
   } catch {
     return null;
   }
 }
 
-function buildPrCommentHeader(prUrl: string, schemaHistoryUrl: string | null): string {
-  if (!schemaHistoryUrl) {
+function buildPrCommentHeader(prUrl: string, urls: { schemaUrl: string; historyUrl: string } | null): string {
+  if (!urls) {
     return `- [schema](${prUrl}) [change](${prUrl})`;
   }
 
-  return `- [schema](${schemaHistoryUrl}) [change](${prUrl})`;
+  return `- [schema](${urls.schemaUrl}) [change](${urls.historyUrl})`;
 }
 
 function summarizeSchemaChange(change: SchemaChange): string {
@@ -107,10 +109,10 @@ function summarizeSchemaChange(change: SchemaChange): string {
   return change.changeType;
 }
 
-export function buildGitHubCommentBody(changes: SchemaChange[], prUrl?: string, schemaHistoryUrl?: string | null): string {
+export function buildGitHubCommentBody(changes: SchemaChange[], prUrl?: string, schemaUrls?: { schemaUrl: string; historyUrl: string } | null): string {
   const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
   const header = prUrl
-    ? `${buildPrCommentHeader(prUrl, schemaHistoryUrl ?? null)}
+    ? `${buildPrCommentHeader(prUrl, schemaUrls ?? null)}
 
 Detected schema diff:`
     : 'Schema diff:';
@@ -169,8 +171,8 @@ export async function reportGitHubCommentDefault(
 
   const client = createClient(token);
   const prUrl = `https://github.com/${args.repo}/pull/${args.pr}`;
-  const schemaHistoryUrl = buildSchemaHistoryUrl(args);
-  const body = buildGitHubCommentBody(changes, prUrl, schemaHistoryUrl);
+  const schemaUrls = buildSchemaUrls(args);
+  const body = buildGitHubCommentBody(changes, prUrl, schemaUrls);
   await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 

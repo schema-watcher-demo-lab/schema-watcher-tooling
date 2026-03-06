@@ -25,7 +25,10 @@ type RuntimeDeps = {
     reportKafka: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
     reportGitHubComment: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
-export declare function buildGitHubCommentBody(changes: SchemaChange[], prUrl?: string, schemaHistoryUrl?: string | null): string;
+export declare function buildGitHubCommentBody(changes: SchemaChange[], prUrl?: string, schemaUrls?: {
+    schemaUrl: string;
+    historyUrl: string;
+} | null): string;
 export declare function reportGitHubCommentDefault(args: CLIArgs, changes: SchemaChange[], createClient?: (token: string) => GitHubClient): Promise<void>;
 export declare function runSchemaWatcher(args: CLIArgs, deps?: Partial<RuntimeDeps>): Promise<void>;
 export declare function runGit(args: string[]): string[];

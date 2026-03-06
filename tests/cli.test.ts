@@ -253,7 +253,7 @@ describe('CLI', () => {
       expect(markerOccurrences).toBe(1);
       expect(upsertComment).toHaveBeenCalledWith('owner', 'repo', 77, expect.stringContaining('## Crew Schema Watcher'));
       expect(payload).toContain('Detected schema diff');
-      expect(payload).toContain('- [schema](http://localhost:3000/schemas/org_mock_repos/repo/history) [change](https://github.com/owner/repo/pull/77)');
+      expect(payload).toContain('- [schema](http://localhost:3000/schemas/org_mock_repos/repo) [change](http://localhost:3000/schemas/org_mock_repos/repo/history)');
       expect(payload).toContain('- `products`: COLUMN_ADDED (`currency`)');
       expect(payload).toContain('- `orders`: TABLE_ADDED');
     } finally {
