@@ -7,6 +7,17 @@ export interface PostSchemaChangesInput {
     pr: number;
     organizationId?: string;
     changes: SchemaChange[];
+    event?: "pr" | "merge" | "close";
+}
+export interface PostSchemaChangesResult {
+    id: string;
+    repositoryId: string;
+    organizationId: string;
+    pr: number;
+    changes: string;
+    status: string;
+    isBreaking: boolean;
+    createdAt: string;
 }
 export interface PostSchemaChangesResult {
     id: string;

@@ -149,6 +149,27 @@ async function reportGitHubCommentDefault(args, changes, createClient = github_j
     const body = buildGitHubCommentBody(changes, prUrl, schemaUrls);
     await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
+function detectSchemaEvent() {
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    console.log(`DEBUG: GITHUB_EVENT_NAME=${eventName}, GITHUB_EVENT_PATH=${process.env.GITHUB_EVENT_PATH}`);
+    if (eventName !== "pull_request")
+        return null;
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (!eventPath)
+        return null;
+    try {
+        const raw = fs_1.default.readFileSync(eventPath, "utf8");
+        const event = JSON.parse(raw);
+        if (event.action === "closed") {
+            return event.pull_request?.merged ? "merge" : "close";
+        }
+        // opened, synchronize, etc.
+        return "pr";
+    }
+    catch {
+        return null;
+    }
+}
 async function runSchemaWatcher(args, deps = {
     postSchemaChanges: api_js_1.postSchemaChanges,
     detectChanges: detectSchemaChangesFromWorkspace,
@@ -186,6 +207,24 @@ async function runSchemaWatcher(args, deps = {
     else if (!apiEndpoint) {
         throw new Error('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
     }
+    const schemaEvent = detectSchemaEvent();
+    if (schemaEvent) {
+        console.log(`GitHub event type: ${schemaEvent}`);
+    }
+    // For close events, just clean up the pending record — no diff needed
+    if (schemaEvent === "close" && apiReportingEnabled) {
+        await runtime.postSchemaChanges({
+            apiEndpoint: apiEndpoint,
+            apiKey: apiKey,
+            repo: args.repo,
+            pr: args.pr,
+            organizationId: args.organizationId,
+            changes: [],
+            event: "close",
+        });
+        console.log("PR closed without merge, pending change cleaned up");
+        return;
+    }
     const changes = runtime.detectChanges({ includeAllFiles: args.init });
     console.log(`Detected ${changes.length} schema change(s)`);
     if (changes.length === 0) {
@@ -200,6 +239,7 @@ async function runSchemaWatcher(args, deps = {
             pr: args.pr,
             organizationId: args.organizationId,
             changes,
+            event: schemaEvent ?? "merge",
         });
         reportedToApi = true;
     }

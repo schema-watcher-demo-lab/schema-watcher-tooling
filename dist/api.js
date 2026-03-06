@@ -101,8 +101,12 @@ async function postSchemaChanges(input) {
             pr: input.pr,
             organizationId: input.organizationId,
             changes: input.changes,
+            event: input.event,
         }),
     });
+    if (response.status === 204) {
+        return { id: '', repositoryId: '', organizationId: '', pr: input.pr, changes: '[]', status: 'closed', isBreaking: false, createdAt: new Date().toISOString() };
+    }
     if (!response.ok) {
         const body = await response.text();
         throw new Error(`Schema API request failed (${response.status}): ${body}`);

@@ -178,6 +178,7 @@ export async function reportGitHubCommentDefault(
 
 function detectSchemaEvent(): "pr" | "merge" | "close" | null {
   const eventName = process.env.GITHUB_EVENT_NAME;
+  console.log(`DEBUG: GITHUB_EVENT_NAME=${eventName}, GITHUB_EVENT_PATH=${process.env.GITHUB_EVENT_PATH}`);
   if (eventName !== "pull_request") return null;
 
   const eventPath = process.env.GITHUB_EVENT_PATH;
