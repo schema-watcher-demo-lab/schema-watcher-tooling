@@ -148,18 +148,23 @@ describe("github client", () => {
   it("updates existing marker comment when present", async () => {
     const listComments = vi.fn().mockResolvedValue({
       data: [
-        { id: 1001, body: "A normal review comment" },
-        { id: 1002, body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nold watcher output` },
+        { id: 1001, body: "A normal review comment", user: { login: "dev-user" } },
+        {
+          id: 1002,
+          body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nold watcher output`,
+          user: { login: "github-actions[bot]" },
+        },
       ],
     });
     const createComment = vi.fn().mockResolvedValue({});
     const updateComment = vi.fn().mockResolvedValue({});
+    const deleteComment = vi.fn().mockResolvedValue({});
 
     const client = createGitHubClientWithOctokit({
       rest: {
         pulls: { listFiles: vi.fn(), get: vi.fn() },
         repos: { getContent: vi.fn() },
-        issues: { createComment, listComments, updateComment },
+        issues: { createComment, listComments, updateComment, deleteComment },
       },
     });
 
@@ -180,25 +185,39 @@ describe("github client", () => {
       comment_id: 1002,
       body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nNew watcher output`,
     });
+    expect(deleteComment).not.toHaveBeenCalled();
   });
 
-  it("ignores unrelated comments and updates first marker comment", async () => {
+  it("ignores unrelated comments and updates newest bot marker comment", async () => {
     const listComments = vi.fn().mockResolvedValue({
       data: [
-        { id: 3001, body: "No marker here" },
-        { id: 3002, body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nfirst marker` },
-        { id: 3003, body: "Another unrelated comment" },
-        { id: 3004, body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nsecond marker` },
+        { id: 3001, body: "No marker here", user: { login: "human-1" } },
+        {
+          id: 3002,
+          body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nfirst marker`,
+          user: { login: "github-actions[bot]" },
+        },
+        {
+          id: 3003,
+          body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nhuman marker`,
+          user: { login: "human-2" },
+        },
+        {
+          id: 3004,
+          body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nsecond marker`,
+          user: { login: "github-actions[bot]" },
+        },
       ],
     });
     const createComment = vi.fn().mockResolvedValue({});
     const updateComment = vi.fn().mockResolvedValue({});
+    const deleteComment = vi.fn().mockResolvedValue({});
 
     const client = createGitHubClientWithOctokit({
       rest: {
         pulls: { listFiles: vi.fn(), get: vi.fn() },
         repos: { getContent: vi.fn() },
-        issues: { createComment, listComments, updateComment },
+        issues: { createComment, listComments, updateComment, deleteComment },
       },
     });
 
@@ -209,8 +228,47 @@ describe("github client", () => {
     expect(updateComment).toHaveBeenCalledWith({
       owner: "acme",
       repo: "repo",
-      comment_id: 3002,
+      comment_id: 3004,
       body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nNewest watcher output`,
+    });
+    expect(deleteComment).toHaveBeenCalledTimes(1);
+    expect(deleteComment).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "repo",
+      comment_id: 3002,
+    });
+  });
+
+  it("does not overwrite human marker comments", async () => {
+    const listComments = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: 7001,
+          body: `${SCHEMA_WATCHER_COMMENT_MARKER}\ncustom human note`,
+          user: { login: "maintainer" },
+        },
+      ],
+    });
+    const createComment = vi.fn().mockResolvedValue({});
+    const updateComment = vi.fn().mockResolvedValue({});
+
+    const client = createGitHubClientWithOctokit({
+      rest: {
+        pulls: { listFiles: vi.fn(), get: vi.fn() },
+        repos: { getContent: vi.fn() },
+        issues: { createComment, listComments, updateComment, deleteComment: vi.fn() },
+      },
+    });
+
+    await client.upsertComment("acme", "repo", 42, "Bot watcher output");
+
+    expect(updateComment).not.toHaveBeenCalled();
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(createComment).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "repo",
+      issue_number: 42,
+      body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nBot watcher output`,
     });
   });
 
@@ -218,7 +276,13 @@ describe("github client", () => {
     const listComments = vi.fn().mockImplementation(({ page }: { page?: number }) => {
       if (page === 2) {
         return Promise.resolve({
-          data: [{ id: 5002, body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nolder watcher output` }],
+          data: [
+            {
+              id: 5002,
+              body: `${SCHEMA_WATCHER_COMMENT_MARKER}\nolder watcher output`,
+              user: { login: "github-actions[bot]" },
+            },
+          ],
         });
       }
       return Promise.resolve({
@@ -279,6 +343,81 @@ describe("github client", () => {
     });
 
     await expect(client.getPRDiffs("acme", "repo", 42)).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("retries postComment on transient 5xx failures", async () => {
+    const createComment = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({});
+
+    const client = createGitHubClientWithOctokit({
+      rest: {
+        pulls: { listFiles: vi.fn(), get: vi.fn() },
+        repos: { getContent: vi.fn() },
+        issues: {
+          createComment,
+          listComments: vi.fn(),
+          updateComment: vi.fn(),
+          deleteComment: vi.fn(),
+        },
+      },
+    });
+
+    await client.postComment("acme", "repo", 42, "hello");
+
+    expect(createComment).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries network errors in postComment", async () => {
+    const createComment = vi
+      .fn()
+      .mockRejectedValueOnce({ code: "ECONNRESET" })
+      .mockResolvedValueOnce({});
+
+    const client = createGitHubClientWithOctokit({
+      rest: {
+        pulls: { listFiles: vi.fn(), get: vi.fn() },
+        repos: { getContent: vi.fn() },
+        issues: {
+          createComment,
+          listComments: vi.fn(),
+          updateComment: vi.fn(),
+          deleteComment: vi.fn(),
+        },
+      },
+    });
+
+    await client.postComment("acme", "repo", 42, "hello");
+
+    expect(createComment).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors retry-after header when retrying", async () => {
+    const createComment = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 429, response: { headers: { "retry-after": "0" } } })
+      .mockResolvedValueOnce({});
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    const client = createGitHubClientWithOctokit({
+      rest: {
+        pulls: { listFiles: vi.fn(), get: vi.fn() },
+        repos: { getContent: vi.fn() },
+        issues: {
+          createComment,
+          listComments: vi.fn(),
+          updateComment: vi.fn(),
+          deleteComment: vi.fn(),
+        },
+      },
+    });
+
+    await client.postComment("acme", "repo", 42, "hello");
+
+    expect(createComment).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0);
+    setTimeoutSpy.mockRestore();
   });
 });
 
