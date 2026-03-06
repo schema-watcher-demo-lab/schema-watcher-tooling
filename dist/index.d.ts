@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { postSchemaChanges } from './api.js';
+import type { GitHubClient } from './github.js';
 import type { SchemaChange } from './types.js';
 export interface CLIArgs {
     repo: string;
@@ -21,7 +22,10 @@ type RuntimeDeps = {
     }) => SchemaChange[];
     reportSlack: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
     reportKafka: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
+    reportGitHubComment: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
+export declare function buildGitHubCommentBody(changes: SchemaChange[]): string;
+export declare function reportGitHubCommentDefault(args: CLIArgs, changes: SchemaChange[], createClient?: (token: string) => GitHubClient): Promise<void>;
 export declare function runSchemaWatcher(args: CLIArgs, deps?: Partial<RuntimeDeps>): Promise<void>;
 export declare function runGit(args: string[]): string[];
 export declare function detectSchemaChangesFromWorkspace(opts?: {

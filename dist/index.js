@@ -5,6 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseArgs = parseArgs;
+exports.buildGitHubCommentBody = buildGitHubCommentBody;
+exports.reportGitHubCommentDefault = reportGitHubCommentDefault;
 exports.runSchemaWatcher = runSchemaWatcher;
 exports.runGit = runGit;
 exports.detectSchemaChangesFromWorkspace = detectSchemaChangesFromWorkspace;
@@ -16,6 +18,7 @@ const path_1 = __importDefault(require("path"));
 const api_js_1 = require("./api.js");
 const analyzer_js_1 = require("./analyzer.js");
 const detector_js_1 = require("./detector.js");
+const github_js_1 = require("./github.js");
 const index_js_1 = require("./parser/index.js");
 const index_js_2 = require("./reporter/index.js");
 function parseArgs(argv) {
@@ -25,7 +28,16 @@ function parseArgs(argv) {
         .name('crew-schema-watcher')
         .description('Schema Watcher - Autonomous agent for schema change detection')
         .requiredOption('-r, --repo <owner/name>', 'Repository (owner/name)')
-        .option('-p, --pr <number>', 'PR number')
+        .option('-p, --pr <number>', 'PR number', (value) => {
+        if (!/^\d+$/.test(value)) {
+            throw new commander_1.InvalidArgumentError('--pr must be a positive integer');
+        }
+        const parsed = Number.parseInt(value, 10);
+        if (parsed <= 0) {
+            throw new commander_1.InvalidArgumentError('--pr must be a positive integer');
+        }
+        return parsed;
+    })
         .option('--organization-id <id>', 'Organization ID for disambiguation')
         .option('--api-endpoint <url>', 'Schema storage API endpoint', '')
         .option('--api-key <key>', 'API key for schema storage')
@@ -45,6 +57,24 @@ function validateUrl(url, name) {
         throw new Error(`Invalid ${name}: ${url}`);
     }
 }
+function summarizeSchemaChange(change) {
+    if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
+        return `${change.changeType} (\`${change.oldColumn}\` -> \`${change.newColumn}\`)`;
+    }
+    if (change.column) {
+        return `${change.changeType} (\`${change.column}\`)`;
+    }
+    return change.changeType;
+}
+function buildGitHubCommentBody(changes) {
+    const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
+    return [
+        github_js_1.SCHEMA_WATCHER_COMMENT_MARKER,
+        '## Crew Schema Watcher',
+        '',
+        ...lines,
+    ].join('\n');
+}
 async function reportSlackDefault(args, changes) {
     if (!args.slackWebhook)
         return;
@@ -62,17 +92,40 @@ async function reportKafkaDefault(args, changes) {
         await reporter.disconnect();
     }
 }
+function parseRepoOwnerAndName(repoRef) {
+    const match = /^([^/]+)\/([^/]+)$/.exec(repoRef);
+    if (!match) {
+        return null;
+    }
+    return { owner: match[1], repo: match[2] };
+}
+async function reportGitHubCommentDefault(args, changes, createClient = github_js_1.createGitHubClient) {
+    if (!args.pr)
+        return;
+    const token = process.env.GITHUB_TOKEN;
+    if (!token)
+        return;
+    const repoRef = parseRepoOwnerAndName(args.repo);
+    if (!repoRef) {
+        throw new Error(`Invalid repo format: ${args.repo}. Expected owner/name`);
+    }
+    const client = createClient(token);
+    const body = buildGitHubCommentBody(changes);
+    await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
+}
 async function runSchemaWatcher(args, deps = {
     postSchemaChanges: api_js_1.postSchemaChanges,
     detectChanges: detectSchemaChangesFromWorkspace,
     reportSlack: reportSlackDefault,
     reportKafka: reportKafkaDefault,
+    reportGitHubComment: reportGitHubCommentDefault,
 }) {
     const runtime = {
         postSchemaChanges: api_js_1.postSchemaChanges,
         detectChanges: detectSchemaChangesFromWorkspace,
         reportSlack: reportSlackDefault,
         reportKafka: reportKafkaDefault,
+        reportGitHubComment: reportGitHubCommentDefault,
         ...deps,
     };
     if (!args.pr) {
@@ -97,6 +150,10 @@ async function runSchemaWatcher(args, deps = {
     }
     const changes = runtime.detectChanges({ includeAllFiles: args.init });
     console.log(`Detected ${changes.length} schema change(s)`);
+    if (changes.length === 0) {
+        console.log('No schema changes detected, skipping API report');
+        return;
+    }
     await runtime.postSchemaChanges({
         apiEndpoint,
         apiKey,
@@ -105,6 +162,14 @@ async function runSchemaWatcher(args, deps = {
         organizationId: args.organizationId,
         changes,
     });
+    if (process.env.GITHUB_TOKEN) {
+        try {
+            await runtime.reportGitHubComment(args, changes);
+        }
+        catch (error) {
+            console.warn('GitHub comment reporting failed:', error instanceof Error ? error.message : String(error));
+        }
+    }
     try {
         await runtime.reportSlack(args, changes);
     }

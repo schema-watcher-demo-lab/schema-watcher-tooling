@@ -33,11 +33,17 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.SCHEMA_WATCHER_COMMENT_MARKER = void 0;
 exports.createGitHubClientWithOctokit = createGitHubClientWithOctokit;
 exports.createGitHubClient = createGitHubClient;
 exports.parseGitHubDiff = parseGitHubDiff;
 const octokit_1 = require("octokit");
 const diff = __importStar(require("diff"));
+exports.SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
+function withSingleSchemaWatcherMarker(body) {
+    const bodyWithoutMarkers = body.split(exports.SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
+    return `${exports.SCHEMA_WATCHER_COMMENT_MARKER}\n${bodyWithoutMarkers}`;
+}
 function mapFileStatus(status) {
     switch (status) {
         case 'added':
@@ -71,6 +77,49 @@ async function withRetry(fn, maxRetries = 3) {
     }
     throw lastError;
 }
+function getErrorStatus(error) {
+    if (!error || typeof error !== 'object' || !('status' in error)) {
+        return undefined;
+    }
+    const status = error.status;
+    return typeof status === 'number' ? status : undefined;
+}
+async function listAllPRFiles(octokit, owner, repo, prNumber) {
+    const files = [];
+    let page = 1;
+    while (true) {
+        const { data } = await octokit.rest.pulls.listFiles({
+            owner,
+            repo,
+            pull_number: prNumber,
+            per_page: 100,
+            page,
+        });
+        files.push(...data);
+        if (data.length < 100)
+            break;
+        page += 1;
+    }
+    return files;
+}
+async function listAllIssueComments(octokit, owner, repo, prNumber) {
+    const comments = [];
+    let page = 1;
+    while (true) {
+        const { data } = await octokit.rest.issues.listComments({
+            owner,
+            repo,
+            issue_number: prNumber,
+            per_page: 100,
+            page,
+        });
+        comments.push(...data);
+        if (data.length < 100)
+            break;
+        page += 1;
+    }
+    return comments;
+}
 async function getFileContentAtRef(octokit, owner, repo, filePath, ref) {
     try {
         const { data } = await withRetry(() => octokit.rest.repos.getContent({
@@ -91,19 +140,18 @@ async function getFileContentAtRef(octokit, owner, repo, filePath, ref) {
         }
         return blob.content;
     }
-    catch {
-        return '';
+    catch (error) {
+        if (getErrorStatus(error) === 404) {
+            return '';
+        }
+        throw error;
     }
 }
 function createGitHubClientWithOctokit(octokit) {
     return {
         async getPRDiffs(owner, repo, prNumber) {
             return withRetry(async () => {
-                const { data: files } = await octokit.rest.pulls.listFiles({
-                    owner,
-                    repo,
-                    pull_number: prNumber,
-                });
+                const files = await listAllPRFiles(octokit, owner, repo, prNumber);
                 const { data: pull } = await octokit.rest.pulls.get({
                     owner,
                     repo,
@@ -150,6 +198,28 @@ function createGitHubClientWithOctokit(octokit) {
                     repo,
                     issue_number: prNumber,
                     body,
+                });
+            });
+        },
+        async upsertComment(owner, repo, prNumber, body) {
+            const markerBody = withSingleSchemaWatcherMarker(body);
+            await withRetry(async () => {
+                const comments = await listAllIssueComments(octokit, owner, repo, prNumber);
+                const existingComment = comments.find(comment => typeof comment.body === 'string' && comment.body.includes(exports.SCHEMA_WATCHER_COMMENT_MARKER));
+                if (existingComment) {
+                    await octokit.rest.issues.updateComment({
+                        owner,
+                        repo,
+                        comment_id: existingComment.id,
+                        body: markerBody,
+                    });
+                    return;
+                }
+                await octokit.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: prNumber,
+                    body: markerBody,
                 });
             });
         },

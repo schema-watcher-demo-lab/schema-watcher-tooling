@@ -5,6 +5,14 @@ import * as diff from 'diff';
 export interface GitHubClient {
   getPRDiffs(owner: string, repo: string, prNumber: number): Promise<FileDiff[]>;
   postComment(owner: string, repo: string, prNumber: number, body: string): Promise<void>;
+  upsertComment(owner: string, repo: string, prNumber: number, body: string): Promise<void>;
+}
+
+export const SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
+
+function withSingleSchemaWatcherMarker(body: string): string {
+  const bodyWithoutMarkers = body.split(SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
+  return `${SCHEMA_WATCHER_COMMENT_MARKER}\n${bodyWithoutMarkers}`;
 }
 
 function mapFileStatus(status: string): 'added' | 'modified' | 'deleted' {
@@ -49,7 +57,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
 type OctokitLike = {
   rest: {
     pulls: {
-      listFiles(params: { owner: string; repo: string; pull_number: number }): Promise<{ data: Array<{ filename: string; status: string; previous_filename?: string }> }>;
+      listFiles(params: { owner: string; repo: string; pull_number: number; per_page?: number; page?: number }): Promise<{ data: Array<{ filename: string; status: string; previous_filename?: string }> }>;
       get(params: { owner: string; repo: string; pull_number: number }): Promise<{ data: { base?: { sha?: string }; head?: { sha?: string } } }>;
     };
     repos: {
@@ -57,9 +65,69 @@ type OctokitLike = {
     };
     issues: {
       createComment(params: { owner: string; repo: string; issue_number: number; body: string }): Promise<unknown>;
+      listComments(params: { owner: string; repo: string; issue_number: number; per_page?: number; page?: number }): Promise<{ data: Array<{ id: number; body?: string | null }> }>;
+      updateComment(params: { owner: string; repo: string; comment_id: number; body: string }): Promise<unknown>;
     };
   };
 };
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || !('status' in error)) {
+    return undefined;
+  }
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' ? status : undefined;
+}
+
+async function listAllPRFiles(
+  octokit: OctokitLike,
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<Array<{ filename: string; status: string; previous_filename?: string }>> {
+  const files: Array<{ filename: string; status: string; previous_filename?: string }> = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.rest.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+      page,
+    });
+    files.push(...data);
+    if (data.length < 100) break;
+    page += 1;
+  }
+
+  return files;
+}
+
+async function listAllIssueComments(
+  octokit: OctokitLike,
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<Array<{ id: number; body?: string | null }>> {
+  const comments: Array<{ id: number; body?: string | null }> = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: prNumber,
+      per_page: 100,
+      page,
+    });
+    comments.push(...data);
+    if (data.length < 100) break;
+    page += 1;
+  }
+
+  return comments;
+}
 
 async function getFileContentAtRef(
   octokit: OctokitLike,
@@ -87,8 +155,11 @@ async function getFileContentAtRef(
       return Buffer.from(blob.content, 'base64').toString('utf8');
     }
     return blob.content;
-  } catch {
-    return '';
+  } catch (error) {
+    if (getErrorStatus(error) === 404) {
+      return '';
+    }
+    throw error;
   }
 }
 
@@ -96,11 +167,7 @@ export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClien
   return {
     async getPRDiffs(owner: string, repo: string, prNumber: number): Promise<FileDiff[]> {
       return withRetry(async () => {
-        const { data: files } = await octokit.rest.pulls.listFiles({
-          owner,
-          repo,
-          pull_number: prNumber,
-        });
+        const files = await listAllPRFiles(octokit, owner, repo, prNumber);
 
         const { data: pull } = await octokit.rest.pulls.get({
           owner,
@@ -155,6 +222,35 @@ export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClien
           repo,
           issue_number: prNumber,
           body,
+        });
+      });
+    },
+
+    async upsertComment(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
+      const markerBody = withSingleSchemaWatcherMarker(body);
+
+      await withRetry(async () => {
+        const comments = await listAllIssueComments(octokit, owner, repo, prNumber);
+
+        const existingComment = comments.find(comment =>
+          typeof comment.body === 'string' && comment.body.includes(SCHEMA_WATCHER_COMMENT_MARKER)
+        );
+
+        if (existingComment) {
+          await octokit.rest.issues.updateComment({
+            owner,
+            repo,
+            comment_id: existingComment.id,
+            body: markerBody,
+          });
+          return;
+        }
+
+        await octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: prNumber,
+          body: markerBody,
         });
       });
     },

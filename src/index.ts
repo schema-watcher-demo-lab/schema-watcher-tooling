@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { postSchemaChanges } from './api.js';
 import { analyzeChanges } from './analyzer.js';
 import { isSchemaFile } from './detector.js';
+import { createGitHubClient, SCHEMA_WATCHER_COMMENT_MARKER } from './github.js';
+import type { GitHubClient } from './github.js';
 import { ParserRegistry } from './parser/index.js';
 import type { SchemaChange } from './types.js';
 import { createKafkaReporter, createSlackReporter } from './reporter/index.js';
@@ -32,7 +34,16 @@ export function parseArgs(argv: string[]): CLIArgs {
     .name('crew-schema-watcher')
     .description('Schema Watcher - Autonomous agent for schema change detection')
     .requiredOption('-r, --repo <owner/name>', 'Repository (owner/name)')
-    .option('-p, --pr <number>', 'PR number')
+    .option('-p, --pr <number>', 'PR number', (value: string) => {
+      if (!/^\d+$/.test(value)) {
+        throw new InvalidArgumentError('--pr must be a positive integer');
+      }
+      const parsed = Number.parseInt(value, 10);
+      if (parsed <= 0) {
+        throw new InvalidArgumentError('--pr must be a positive integer');
+      }
+      return parsed;
+    })
     .option('--organization-id <id>', 'Organization ID for disambiguation')
     .option('--api-endpoint <url>', 'Schema storage API endpoint', '')
     .option('--api-key <key>', 'API key for schema storage')
@@ -59,7 +70,28 @@ type RuntimeDeps = {
   detectChanges: (opts?: { includeAllFiles?: boolean }) => SchemaChange[];
   reportSlack: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
   reportKafka: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
+  reportGitHubComment: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
+
+function summarizeSchemaChange(change: SchemaChange): string {
+  if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
+    return `${change.changeType} (\`${change.oldColumn}\` -> \`${change.newColumn}\`)`;
+  }
+  if (change.column) {
+    return `${change.changeType} (\`${change.column}\`)`;
+  }
+  return change.changeType;
+}
+
+export function buildGitHubCommentBody(changes: SchemaChange[]): string {
+  const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
+  return [
+    SCHEMA_WATCHER_COMMENT_MARKER,
+    '## Crew Schema Watcher',
+    '',
+    ...lines,
+  ].join('\n');
+}
 
 async function reportSlackDefault(args: CLIArgs, changes: SchemaChange[]): Promise<void> {
   if (!args.slackWebhook) return;
@@ -77,6 +109,37 @@ async function reportKafkaDefault(args: CLIArgs, changes: SchemaChange[]): Promi
   }
 }
 
+function parseRepoOwnerAndName(repoRef: string): { owner: string; repo: string } | null {
+  const match = /^([^/]+)\/([^/]+)$/.exec(repoRef);
+  if (!match) {
+    return null;
+  }
+  return { owner: match[1], repo: match[2] };
+}
+
+export async function reportGitHubCommentDefault(
+  args: CLIArgs,
+  changes: SchemaChange[],
+  createClient: (token: string) => GitHubClient = createGitHubClient,
+): Promise<void> {
+  if (!args.pr) return;
+
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  if (eventName && eventName !== 'pull_request') return;
+
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return;
+
+  const repoRef = parseRepoOwnerAndName(args.repo);
+  if (!repoRef) {
+    throw new Error(`Invalid repo format: ${args.repo}. Expected owner/name`);
+  }
+
+  const client = createClient(token);
+  const body = buildGitHubCommentBody(changes);
+  await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
+}
+
 export async function runSchemaWatcher(
   args: CLIArgs,
   deps: Partial<RuntimeDeps> = {
@@ -84,6 +147,7 @@ export async function runSchemaWatcher(
     detectChanges: detectSchemaChangesFromWorkspace,
     reportSlack: reportSlackDefault,
     reportKafka: reportKafkaDefault,
+    reportGitHubComment: reportGitHubCommentDefault,
   }
 ): Promise<void> {
   const runtime: RuntimeDeps = {
@@ -91,6 +155,7 @@ export async function runSchemaWatcher(
     detectChanges: detectSchemaChangesFromWorkspace,
     reportSlack: reportSlackDefault,
     reportKafka: reportKafkaDefault,
+    reportGitHubComment: reportGitHubCommentDefault,
     ...deps,
   };
 
@@ -134,6 +199,17 @@ export async function runSchemaWatcher(
     organizationId: args.organizationId,
     changes,
   });
+
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  const isPullRequestEvent = !eventName || eventName === 'pull_request';
+
+  if (isPullRequestEvent && process.env.GITHUB_TOKEN) {
+    try {
+      await runtime.reportGitHubComment(args, changes);
+    } catch (error) {
+      console.warn('GitHub comment reporting failed:', error instanceof Error ? error.message : String(error));
+    }
+  }
 
   try {
     await runtime.reportSlack(args, changes);
@@ -211,9 +287,19 @@ function walkFiles(root: string): string[] {
   return results;
 }
 
+function resolvePullRequestBaseSha(): string | null {
+  const value = process.env.PR_BASE_SHA?.trim();
+  if (!value) {
+    return null;
+  }
+
+  return value;
+}
+
 export function detectSchemaChangesFromWorkspace(opts?: { includeAllFiles?: boolean }): SchemaChange[] {
   const parser = new ParserRegistry();
   const includeAllFiles = opts?.includeAllFiles === true;
+  const prBaseRevision = includeAllFiles ? null : resolvePullRequestBaseSha();
   const changedFiles = new Set<string>();
 
   if (includeAllFiles) {
@@ -225,15 +311,21 @@ export function detectSchemaChangesFromWorkspace(opts?: { includeAllFiles?: bool
       }
     }
   } else {
-    for (const file of runGit(['diff', '--name-only', 'HEAD'])) changedFiles.add(file);
-    for (const file of runGit(['diff', '--cached', '--name-only'])) changedFiles.add(file);
-    for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD'])) changedFiles.add(file);
+    if (prBaseRevision) {
+      for (const file of runGit(['diff', '--name-only', `${prBaseRevision}...HEAD`])) changedFiles.add(file);
+    } else {
+      for (const file of runGit(['diff', '--name-only', 'HEAD'])) changedFiles.add(file);
+      for (const file of runGit(['diff', '--cached', '--name-only'])) changedFiles.add(file);
+      for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD'])) changedFiles.add(file);
+    }
   }
 
   const schemaFiles = [...changedFiles].filter(isSchemaFile);
   if (schemaFiles.length === 0) return [];
   const changes: SchemaChange[] = [];
-  const baseRevision = includeAllFiles ? null : runGit(['rev-parse', '--verify', 'HEAD~1'])[0] || null;
+  const baseRevision = includeAllFiles
+    ? null
+    : (prBaseRevision ?? runGit(['rev-parse', '--verify', 'HEAD~1'])[0] ?? null);
 
   if (!includeAllFiles && !baseRevision) {
     console.warn('Skipping schema detection: shallow clone missing HEAD~1 baseline');
