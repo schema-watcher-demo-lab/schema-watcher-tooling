@@ -63,6 +63,9 @@ type OctokitLike = {
                 data: Array<{
                     id: number;
                     body?: string | null;
+                    user?: {
+                        login?: string | null;
+                    } | null;
                 }>;
             }>;
             updateComment(params: {
@@ -70,6 +73,11 @@ type OctokitLike = {
                 repo: string;
                 comment_id: number;
                 body: string;
+            }): Promise<unknown>;
+            deleteComment?(params: {
+                owner: string;
+                repo: string;
+                comment_id: number;
             }): Promise<unknown>;
         };
     };

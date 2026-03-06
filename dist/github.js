@@ -40,6 +40,7 @@ exports.parseGitHubDiff = parseGitHubDiff;
 const octokit_1 = require("octokit");
 const diff = __importStar(require("diff"));
 exports.SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
+const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 function withSingleSchemaWatcherMarker(body) {
     const bodyWithoutMarkers = body.split(exports.SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
     return `${exports.SCHEMA_WATCHER_COMMENT_MARKER}\n${bodyWithoutMarkers}`;
@@ -57,20 +58,75 @@ function mapFileStatus(status) {
 }
 async function withRetry(fn, maxRetries = 3) {
     let lastError;
+    const baseDelayMs = 100;
+    const getRetryDelayMs = (error, attempt) => {
+        if (!error || typeof error !== 'object') {
+            return Math.pow(2, attempt) * baseDelayMs;
+        }
+        const response = error.response;
+        if (response && typeof response === 'object') {
+            const headers = response.headers;
+            const retryAfterValue = (() => {
+                if (!headers)
+                    return undefined;
+                if (headers instanceof Headers) {
+                    return headers.get('retry-after') ?? undefined;
+                }
+                if (typeof headers === 'object') {
+                    const retryAfter = headers['retry-after'];
+                    return typeof retryAfter === 'string' ? retryAfter : undefined;
+                }
+                return undefined;
+            })();
+            if (retryAfterValue) {
+                const seconds = Number(retryAfterValue);
+                if (!Number.isNaN(seconds)) {
+                    return Math.max(0, seconds * 1000);
+                }
+                const when = Date.parse(retryAfterValue);
+                if (!Number.isNaN(when)) {
+                    return Math.max(0, when - Date.now());
+                }
+            }
+        }
+        return Math.pow(2, attempt) * baseDelayMs;
+    };
+    const shouldRetry = (error) => {
+        if (!error || typeof error !== 'object') {
+            return false;
+        }
+        if ('status' in error && typeof error.status === 'number') {
+            const status = error.status;
+            if (status === 403 || status === 429)
+                return true;
+            if (status >= 500 && status <= 599)
+                return true;
+        }
+        const code = error.code;
+        if (typeof code === 'string') {
+            const transientCodes = new Set([
+                'ECONNRESET',
+                'ECONNREFUSED',
+                'ENOTFOUND',
+                'ETIMEDOUT',
+                'EAI_AGAIN',
+            ]);
+            if (transientCodes.has(code))
+                return true;
+        }
+        return false;
+    };
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             return await fn();
         }
         catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
-            if (error && typeof error === 'object' && 'status' in error) {
-                const status = error.status;
-                if (status === 403 || status === 429) {
-                    const waitTime = Math.pow(2, attempt) * 1000;
-                    console.warn(`Rate limited, retrying in ${waitTime}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                    continue;
-                }
+            if (shouldRetry(error) && attempt < maxRetries - 1) {
+                const waitTime = getRetryDelayMs(error, attempt);
+                console.warn(`Request failed, retrying in ${waitTime}ms...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
             }
             throw error;
         }
@@ -205,7 +261,10 @@ function createGitHubClientWithOctokit(octokit) {
             const markerBody = withSingleSchemaWatcherMarker(body);
             await withRetry(async () => {
                 const comments = await listAllIssueComments(octokit, owner, repo, prNumber);
-                const existingComment = comments.find(comment => typeof comment.body === 'string' && comment.body.includes(exports.SCHEMA_WATCHER_COMMENT_MARKER));
+                const botMarkerComments = comments.filter((comment) => typeof comment.body === 'string' &&
+                    comment.body.includes(exports.SCHEMA_WATCHER_COMMENT_MARKER) &&
+                    comment.user?.login === GITHUB_ACTIONS_BOT_LOGIN);
+                const existingComment = botMarkerComments.reduce((newest, comment) => (newest === undefined || comment.id > newest.id ? comment : newest), undefined);
                 if (existingComment) {
                     await octokit.rest.issues.updateComment({
                         owner,
@@ -213,6 +272,21 @@ function createGitHubClientWithOctokit(octokit) {
                         comment_id: existingComment.id,
                         body: markerBody,
                     });
+                    if (octokit.rest.issues.deleteComment) {
+                        const duplicateComments = botMarkerComments.filter((comment) => comment.id !== existingComment.id);
+                        for (const duplicateComment of duplicateComments) {
+                            try {
+                                await octokit.rest.issues.deleteComment({
+                                    owner,
+                                    repo,
+                                    comment_id: duplicateComment.id,
+                                });
+                            }
+                            catch {
+                                // Best effort cleanup only.
+                            }
+                        }
+                    }
                     return;
                 }
                 await octokit.rest.issues.createComment({

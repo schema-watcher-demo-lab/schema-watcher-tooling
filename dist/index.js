@@ -57,6 +57,9 @@ function validateUrl(url, name) {
         throw new Error(`Invalid ${name}: ${url}`);
     }
 }
+function buildPrCommentHeader(prUrl) {
+    return `- [schema](${prUrl}) [change](${prUrl})`;
+}
 function summarizeSchemaChange(change) {
     if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
         return `${change.changeType} (\`${change.oldColumn}\` -> \`${change.newColumn}\`)`;
@@ -66,11 +69,18 @@ function summarizeSchemaChange(change) {
     }
     return change.changeType;
 }
-function buildGitHubCommentBody(changes) {
+function buildGitHubCommentBody(changes, prUrl) {
     const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
+    const header = prUrl
+        ? `${buildPrCommentHeader(prUrl)}
+
+Detected schema diff:`
+        : 'Schema diff:';
     return [
         github_js_1.SCHEMA_WATCHER_COMMENT_MARKER,
         '## Crew Schema Watcher',
+        '',
+        header,
         '',
         ...lines,
     ].join('\n');
@@ -102,6 +112,9 @@ function parseRepoOwnerAndName(repoRef) {
 async function reportGitHubCommentDefault(args, changes, createClient = github_js_1.createGitHubClient) {
     if (!args.pr)
         return;
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    if (eventName && eventName !== 'pull_request')
+        return;
     const token = process.env.GITHUB_TOKEN;
     if (!token)
         return;
@@ -110,7 +123,8 @@ async function reportGitHubCommentDefault(args, changes, createClient = github_j
         throw new Error(`Invalid repo format: ${args.repo}. Expected owner/name`);
     }
     const client = createClient(token);
-    const body = buildGitHubCommentBody(changes);
+    const prUrl = `https://github.com/${args.repo}/pull/${args.pr}`;
+    const body = buildGitHubCommentBody(changes, prUrl);
     await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 async function runSchemaWatcher(args, deps = {
@@ -140,12 +154,13 @@ async function runSchemaWatcher(args, deps = {
         return;
     }
     const apiKey = args.apiKey || process.env.CREW_API_KEY;
-    if (!apiKey) {
-        console.log('No API key provided, skipping API report');
-        return;
-    }
     const apiEndpoint = args.apiEndpoint || process.env.SCHEMA_API_ENDPOINT;
-    if (!apiEndpoint) {
+    const apiReportingEnabled = Boolean(apiKey);
+    let reportedToApi = false;
+    if (!apiReportingEnabled) {
+        console.log('No API key provided, skipping API report');
+    }
+    else if (!apiEndpoint) {
         throw new Error('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
     }
     const changes = runtime.detectChanges({ includeAllFiles: args.init });
@@ -154,15 +169,20 @@ async function runSchemaWatcher(args, deps = {
         console.log('No schema changes detected, skipping API report');
         return;
     }
-    await runtime.postSchemaChanges({
-        apiEndpoint,
-        apiKey,
-        repo: args.repo,
-        pr: args.pr,
-        organizationId: args.organizationId,
-        changes,
-    });
-    if (process.env.GITHUB_TOKEN) {
+    if (apiReportingEnabled) {
+        await runtime.postSchemaChanges({
+            apiEndpoint: apiEndpoint,
+            apiKey: apiKey,
+            repo: args.repo,
+            pr: args.pr,
+            organizationId: args.organizationId,
+            changes,
+        });
+        reportedToApi = true;
+    }
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    const isPullRequestEvent = !eventName || eventName === 'pull_request';
+    if (isPullRequestEvent && process.env.GITHUB_TOKEN) {
         try {
             await runtime.reportGitHubComment(args, changes);
         }
@@ -182,7 +202,9 @@ async function runSchemaWatcher(args, deps = {
     catch (error) {
         console.warn("Kafka reporting failed:", error instanceof Error ? error.message : String(error));
     }
-    console.log('Reported schema changes to API');
+    if (reportedToApi) {
+        console.log('Reported schema changes to API');
+    }
 }
 function runGit(args) {
     try {
@@ -249,9 +271,43 @@ function walkFiles(root) {
     }
     return results;
 }
+function normalizeRevision(value) {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return null;
+    }
+    if (/^0+$/.test(normalized)) {
+        return null;
+    }
+    return normalized;
+}
+function resolvePullRequestMergeBaseSha() {
+    const prBaseSha = normalizeRevision(process.env.PR_BASE_SHA);
+    if (!prBaseSha) {
+        return null;
+    }
+    return runGit(['merge-base', prBaseSha, 'HEAD'])[0] ?? null;
+}
+function resolvePushRange() {
+    const before = normalizeRevision(process.env.PUSH_BEFORE_SHA
+        ?? process.env.GITHUB_EVENT_BEFORE
+        ?? process.env.GITHUB_BEFORE_SHA
+        ?? process.env.BEFORE_SHA);
+    const after = normalizeRevision(process.env.PUSH_AFTER_SHA
+        ?? process.env.GITHUB_EVENT_AFTER
+        ?? process.env.GITHUB_AFTER_SHA
+        ?? process.env.GITHUB_SHA
+        ?? process.env.AFTER_SHA);
+    if (!before || !after || before === after) {
+        return null;
+    }
+    return { before, after };
+}
 function detectSchemaChangesFromWorkspace(opts) {
     const parser = new index_js_1.ParserRegistry();
     const includeAllFiles = opts?.includeAllFiles === true;
+    const prMergeBaseRevision = includeAllFiles ? null : resolvePullRequestMergeBaseSha();
+    const pushRange = includeAllFiles || prMergeBaseRevision ? null : resolvePushRange();
     const changedFiles = new Set();
     if (includeAllFiles) {
         const cwd = process.cwd();
@@ -263,25 +319,42 @@ function detectSchemaChangesFromWorkspace(opts) {
         }
     }
     else {
-        for (const file of runGit(['diff', '--name-only', 'HEAD']))
-            changedFiles.add(file);
-        for (const file of runGit(['diff', '--cached', '--name-only']))
-            changedFiles.add(file);
-        for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD']))
-            changedFiles.add(file);
+        if (prMergeBaseRevision) {
+            for (const file of runGit(['diff', '--name-only', `${prMergeBaseRevision}...HEAD`]))
+                changedFiles.add(file);
+        }
+        else if (pushRange) {
+            for (const file of runGit(['diff', '--name-only', pushRange.before, pushRange.after]))
+                changedFiles.add(file);
+        }
+        else {
+            for (const file of runGit(['diff', '--name-only', 'HEAD']))
+                changedFiles.add(file);
+            for (const file of runGit(['diff', '--cached', '--name-only']))
+                changedFiles.add(file);
+            for (const file of runGit(['show', '--name-only', '--pretty=', 'HEAD']))
+                changedFiles.add(file);
+        }
     }
     const schemaFiles = [...changedFiles].filter(detector_js_1.isSchemaFile);
     if (schemaFiles.length === 0)
         return [];
     const changes = [];
-    const baseRevision = includeAllFiles ? null : runGit(['rev-parse', '--verify', 'HEAD~1'])[0] || null;
+    const baseRevision = includeAllFiles
+        ? null
+        : (prMergeBaseRevision ?? pushRange?.before ?? runGit(['rev-parse', '--verify', 'HEAD~1'])[0] ?? null);
+    const newRevision = includeAllFiles
+        ? null
+        : (pushRange?.after ?? null);
     if (!includeAllFiles && !baseRevision) {
         console.warn('Skipping schema detection: shallow clone missing HEAD~1 baseline');
         return [];
     }
     for (const filePath of schemaFiles) {
         const oldContent = includeAllFiles ? '' : readFileFromGit(baseRevision, filePath);
-        const newContent = readFileSafe(filePath);
+        const newContent = includeAllFiles
+            ? readFileSafe(filePath)
+            : (newRevision ? readFileFromGit(newRevision, filePath) : readFileSafe(filePath));
         const oldSchema = parser.parse(oldContent, filePath);
         const newSchema = parser.parse(newContent, filePath);
         changes.push(...(0, analyzer_js_1.analyzeChanges)(oldSchema, newSchema));

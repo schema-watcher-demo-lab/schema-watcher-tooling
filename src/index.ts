@@ -73,6 +73,10 @@ type RuntimeDeps = {
   reportGitHubComment: (args: CLIArgs, changes: SchemaChange[]) => Promise<void>;
 };
 
+function buildPrCommentHeader(prUrl: string): string {
+  return `- [schema](${prUrl}) [change](${prUrl})`;
+}
+
 function summarizeSchemaChange(change: SchemaChange): string {
   if (change.changeType === 'COLUMN_RENAMED' && change.oldColumn && change.newColumn) {
     return `${change.changeType} (\`${change.oldColumn}\` -> \`${change.newColumn}\`)`;
@@ -83,11 +87,19 @@ function summarizeSchemaChange(change: SchemaChange): string {
   return change.changeType;
 }
 
-export function buildGitHubCommentBody(changes: SchemaChange[]): string {
+export function buildGitHubCommentBody(changes: SchemaChange[], prUrl?: string): string {
   const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
+  const header = prUrl
+    ? `${buildPrCommentHeader(prUrl)}
+
+Detected schema diff:`
+    : 'Schema diff:';
+
   return [
     SCHEMA_WATCHER_COMMENT_MARKER,
     '## Crew Schema Watcher',
+    '',
+    header,
     '',
     ...lines,
   ].join('\n');
@@ -136,7 +148,8 @@ export async function reportGitHubCommentDefault(
   }
 
   const client = createClient(token);
-  const body = buildGitHubCommentBody(changes);
+  const prUrl = `https://github.com/${args.repo}/pull/${args.pr}`;
+  const body = buildGitHubCommentBody(changes, prUrl);
   await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 

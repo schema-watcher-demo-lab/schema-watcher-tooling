@@ -226,7 +226,7 @@ describe('CLI', () => {
     }
   });
 
-  it('builds GitHub comment payload with single marker, watcher heading, and summary lines', async () => {
+  it('builds GitHub comment payload with marker, heading, and PR links', async () => {
     const previousToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-github-token';
 
@@ -250,24 +250,11 @@ describe('CLI', () => {
       const payload = upsertComment.mock.calls[0]?.[3] as string;
       const markerOccurrences = (payload.match(/<!-- crew-schema-watcher -->/g) ?? []).length;
       expect(markerOccurrences).toBe(1);
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('## Crew Schema Watcher')
-      );
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('- `products`: COLUMN_ADDED (`currency`)')
-      );
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('- `orders`: TABLE_ADDED')
-      );
+      expect(upsertComment).toHaveBeenCalledWith('owner', 'repo', 77, expect.stringContaining('## Crew Schema Watcher'));
+      expect(payload).toContain('Detected schema diff');
+      expect(payload).toContain('- [schema](https://github.com/owner/repo/pull/77) [change](https://github.com/owner/repo/pull/77)');
+      expect(payload).toContain('- `products`: COLUMN_ADDED (`currency`)');
+      expect(payload).toContain('- `orders`: TABLE_ADDED');
     } finally {
       if (previousToken === undefined) {
         delete process.env.GITHUB_TOKEN;
