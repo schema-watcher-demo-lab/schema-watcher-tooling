@@ -33,6 +33,7 @@ jobs:
       - name: Run Schema Watcher
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
           CREW_API_KEY: ${{ secrets.CREW_API_KEY }}
           SCHEMA_API_ENDPOINT: ${{ secrets.SCHEMA_API_ENDPOINT }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
