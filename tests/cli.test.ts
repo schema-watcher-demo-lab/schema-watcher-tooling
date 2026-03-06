@@ -67,6 +67,7 @@ describe('CLI', () => {
       changes: [
         { table: 'products', changeType: 'COLUMN_ADDED', column: 'currency', newType: 'text' },
       ],
+      event: 'merge',
     });
   });
 
@@ -507,6 +508,136 @@ describe('CLI', () => {
         process.env.PR_BASE_SHA = previousBaseSha;
       }
       fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  it('sends close event and skips diffing when PR is closed without merge', async () => {
+    const previousEventName = process.env.GITHUB_EVENT_NAME;
+    const previousEventPath = process.env.GITHUB_EVENT_PATH;
+
+    const eventFile = path.join(os.tmpdir(), `gh-event-close-${Date.now()}.json`);
+    fs.writeFileSync(eventFile, JSON.stringify({
+      action: 'closed',
+      pull_request: { merged: false },
+    }));
+
+    process.env.GITHUB_EVENT_NAME = 'pull_request';
+    process.env.GITHUB_EVENT_PATH = eventFile;
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue({ id: '', repositoryId: '', organizationId: '', pr: 42, changes: '[]', status: 'closed', isBreaking: false, createdAt: new Date().toISOString() });
+      const detectChanges = vi.fn().mockReturnValue([]);
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, { postSchemaChanges, detectChanges });
+
+      expect(postSchemaChanges).toHaveBeenCalledWith({
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        repo: 'test/repo',
+        pr: 42,
+        organizationId: undefined,
+        changes: [],
+        event: 'close',
+      });
+      expect(detectChanges).not.toHaveBeenCalled();
+    } finally {
+      fs.unlinkSync(eventFile);
+      if (previousEventName === undefined) delete process.env.GITHUB_EVENT_NAME;
+      else process.env.GITHUB_EVENT_NAME = previousEventName;
+      if (previousEventPath === undefined) delete process.env.GITHUB_EVENT_PATH;
+      else process.env.GITHUB_EVENT_PATH = previousEventPath;
+    }
+  });
+
+  it('sends merge event when PR is closed with merge', async () => {
+    const previousEventName = process.env.GITHUB_EVENT_NAME;
+    const previousEventPath = process.env.GITHUB_EVENT_PATH;
+
+    const eventFile = path.join(os.tmpdir(), `gh-event-merge-${Date.now()}.json`);
+    fs.writeFileSync(eventFile, JSON.stringify({
+      action: 'closed',
+      pull_request: { merged: true },
+    }));
+
+    process.env.GITHUB_EVENT_NAME = 'pull_request';
+    process.env.GITHUB_EVENT_PATH = eventFile;
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([
+        { table: 'users', changeType: 'COLUMN_ADDED', column: 'name', newType: 'text' },
+      ]);
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, { postSchemaChanges, detectChanges });
+
+      expect(postSchemaChanges).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'merge' }),
+      );
+      expect(detectChanges).toHaveBeenCalled();
+    } finally {
+      fs.unlinkSync(eventFile);
+      if (previousEventName === undefined) delete process.env.GITHUB_EVENT_NAME;
+      else process.env.GITHUB_EVENT_NAME = previousEventName;
+      if (previousEventPath === undefined) delete process.env.GITHUB_EVENT_PATH;
+      else process.env.GITHUB_EVENT_PATH = previousEventPath;
+    }
+  });
+
+  it('sends pr event when PR is opened', async () => {
+    const previousEventName = process.env.GITHUB_EVENT_NAME;
+    const previousEventPath = process.env.GITHUB_EVENT_PATH;
+
+    const eventFile = path.join(os.tmpdir(), `gh-event-pr-${Date.now()}.json`);
+    fs.writeFileSync(eventFile, JSON.stringify({
+      action: 'opened',
+      pull_request: { merged: false },
+    }));
+
+    process.env.GITHUB_EVENT_NAME = 'pull_request';
+    process.env.GITHUB_EVENT_PATH = eventFile;
+
+    try {
+      const { runSchemaWatcher } = await import('../src/index');
+      const postSchemaChanges = vi.fn().mockResolvedValue(undefined);
+      const detectChanges = vi.fn().mockReturnValue([
+        { table: 'users', changeType: 'COLUMN_ADDED', column: 'name', newType: 'text' },
+      ]);
+
+      await runSchemaWatcher({
+        repo: 'test/repo',
+        pr: 42,
+        apiEndpoint: 'http://localhost:3000',
+        apiKey: 'test-api-key',
+        dryRun: false,
+        init: false,
+      }, { postSchemaChanges, detectChanges });
+
+      expect(postSchemaChanges).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'pr' }),
+      );
+      expect(detectChanges).toHaveBeenCalled();
+    } finally {
+      fs.unlinkSync(eventFile);
+      if (previousEventName === undefined) delete process.env.GITHUB_EVENT_NAME;
+      else process.env.GITHUB_EVENT_NAME = previousEventName;
+      if (previousEventPath === undefined) delete process.env.GITHUB_EVENT_PATH;
+      else process.env.GITHUB_EVENT_PATH = previousEventPath;
     }
   });
 

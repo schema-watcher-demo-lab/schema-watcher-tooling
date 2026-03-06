@@ -176,6 +176,28 @@ export async function reportGitHubCommentDefault(
   await client.upsertComment(repoRef.owner, repoRef.repo, args.pr, body);
 }
 
+function detectSchemaEvent(): "pr" | "merge" | "close" | null {
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  if (eventName !== "pull_request") return null;
+
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath) return null;
+
+  try {
+    const raw = fs.readFileSync(eventPath, "utf8");
+    const event = JSON.parse(raw) as { action?: string; pull_request?: { merged?: boolean } };
+
+    if (event.action === "closed") {
+      return event.pull_request?.merged ? "merge" : "close";
+    }
+
+    // opened, synchronize, etc.
+    return "pr";
+  } catch {
+    return null;
+  }
+}
+
 export async function runSchemaWatcher(
   args: CLIArgs,
   deps: Partial<RuntimeDeps> = {
@@ -221,6 +243,26 @@ export async function runSchemaWatcher(
     throw new Error('--api-endpoint (or SCHEMA_API_ENDPOINT) is required when API reporting is enabled');
   }
 
+  const schemaEvent = detectSchemaEvent();
+  if (schemaEvent) {
+    console.log(`GitHub event type: ${schemaEvent}`);
+  }
+
+  // For close events, just clean up the pending record — no diff needed
+  if (schemaEvent === "close" && apiReportingEnabled) {
+    await runtime.postSchemaChanges({
+      apiEndpoint: apiEndpoint!,
+      apiKey: apiKey!,
+      repo: args.repo,
+      pr: args.pr,
+      organizationId: args.organizationId,
+      changes: [],
+      event: "close",
+    });
+    console.log("PR closed without merge, pending change cleaned up");
+    return;
+  }
+
   const changes = runtime.detectChanges({ includeAllFiles: args.init });
   console.log(`Detected ${changes.length} schema change(s)`);
 
@@ -237,6 +279,7 @@ export async function runSchemaWatcher(
       pr: args.pr,
       organizationId: args.organizationId,
       changes,
+      event: schemaEvent ?? "merge",
     });
     reportedToApi = true;
   }

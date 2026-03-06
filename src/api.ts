@@ -8,6 +8,18 @@ export interface PostSchemaChangesInput {
   pr: number;
   organizationId?: string;
   changes: SchemaChange[];
+  event?: "pr" | "merge" | "close";
+}
+
+export interface PostSchemaChangesResult {
+  id: string;
+  repositoryId: string;
+  organizationId: string;
+  pr: number;
+  changes: string;
+  status: string;
+  isBreaking: boolean;
+  createdAt: string;
 }
 
 export interface PostSchemaChangesResult {
@@ -122,8 +134,13 @@ export async function postSchemaChanges(input: PostSchemaChangesInput): Promise<
       pr: input.pr,
       organizationId: input.organizationId,
       changes: input.changes,
+      event: input.event,
     }),
   });
+
+  if (response.status === 204) {
+    return { id: '', repositoryId: '', organizationId: '', pr: input.pr, changes: '[]', status: 'closed', isBreaking: false, createdAt: new Date().toISOString() };
+  }
 
   if (!response.ok) {
     const body = await response.text();
