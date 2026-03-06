@@ -40,6 +40,10 @@ exports.parseGitHubDiff = parseGitHubDiff;
 const octokit_1 = require("octokit");
 const diff = __importStar(require("diff"));
 exports.SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
+function withSingleSchemaWatcherMarker(body) {
+    const bodyWithoutMarkers = body.split(exports.SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
+    return `${exports.SCHEMA_WATCHER_COMMENT_MARKER}\n${bodyWithoutMarkers}`;
+}
 function mapFileStatus(status) {
     switch (status) {
         case 'added':
@@ -198,7 +202,7 @@ function createGitHubClientWithOctokit(octokit) {
             });
         },
         async upsertComment(owner, repo, prNumber, body) {
-            const markerBody = `${exports.SCHEMA_WATCHER_COMMENT_MARKER}\n${body}`;
+            const markerBody = withSingleSchemaWatcherMarker(body);
             await withRetry(async () => {
                 const comments = await listAllIssueComments(octokit, owner, repo, prNumber);
                 const existingComment = comments.find(comment => typeof comment.body === 'string' && comment.body.includes(exports.SCHEMA_WATCHER_COMMENT_MARKER));

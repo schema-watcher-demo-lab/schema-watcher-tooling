@@ -167,7 +167,7 @@ describe('CLI', () => {
     }
   });
 
-  it('builds GitHub comment payload with marker, header, and summary lines', async () => {
+  it('builds GitHub comment payload with single marker, watcher heading, and summary lines', async () => {
     const previousToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-github-token';
 
@@ -188,17 +188,14 @@ describe('CLI', () => {
         { table: 'orders', changeType: 'TABLE_ADDED' },
       ], createGitHubClient);
 
+      const payload = upsertComment.mock.calls[0]?.[3] as string;
+      const markerOccurrences = (payload.match(/<!-- crew-schema-watcher -->/g) ?? []).length;
+      expect(markerOccurrences).toBe(1);
       expect(upsertComment).toHaveBeenCalledWith(
         'owner',
         'repo',
         77,
-        expect.stringContaining('<!-- crew-schema-watcher -->')
-      );
-      expect(upsertComment).toHaveBeenCalledWith(
-        'owner',
-        'repo',
-        77,
-        expect.stringContaining('## Schema Change Summary')
+        expect.stringContaining('## Crew Schema Watcher')
       );
       expect(upsertComment).toHaveBeenCalledWith(
         'owner',

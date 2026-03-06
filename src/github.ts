@@ -10,6 +10,11 @@ export interface GitHubClient {
 
 export const SCHEMA_WATCHER_COMMENT_MARKER = '<!-- crew-schema-watcher -->';
 
+function withSingleSchemaWatcherMarker(body: string): string {
+  const bodyWithoutMarkers = body.split(SCHEMA_WATCHER_COMMENT_MARKER).join('').trimStart();
+  return `${SCHEMA_WATCHER_COMMENT_MARKER}\n${bodyWithoutMarkers}`;
+}
+
 function mapFileStatus(status: string): 'added' | 'modified' | 'deleted' {
   switch (status) {
     case 'added':
@@ -222,7 +227,7 @@ export function createGitHubClientWithOctokit(octokit: OctokitLike): GitHubClien
     },
 
     async upsertComment(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
-      const markerBody = `${SCHEMA_WATCHER_COMMENT_MARKER}\n${body}`;
+      const markerBody = withSingleSchemaWatcherMarker(body);
 
       await withRetry(async () => {
         const comments = await listAllIssueComments(octokit, owner, repo, prNumber);

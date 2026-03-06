@@ -87,7 +87,7 @@ export function buildGitHubCommentBody(changes: SchemaChange[]): string {
   const lines = changes.map(change => `- \`${change.table}\`: ${summarizeSchemaChange(change)}`);
   return [
     SCHEMA_WATCHER_COMMENT_MARKER,
-    '## Schema Change Summary',
+    '## Crew Schema Watcher',
     '',
     ...lines,
   ].join('\n');
